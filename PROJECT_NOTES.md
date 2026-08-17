@@ -2,6 +2,7 @@
 
 ## 最近状态摘要
 
+- 2026-08-17：GitHub 仓库已添加 `dsh-plugin`、`dsh`、`deepseek-harness`、`deepseek`、`token-monitor`、`token-usage`、`balance-monitor`、`damage-animation` Topics；公共 DSH 目录可据 `dsh-plugin` Topic 抓取。
 - 2026-08-17：公开项目品牌由 `dsh-token-monitor` 更名为 `dsh-damage-pulse`，核心卖点定位为“每次 Token 消耗都会触发扣血飘字与余额受击回弹”。
 - 2026-08-17：公开仓库已正式发布，默认分支为 `master`；发布提交 `e904795`，README 与连续扣费 GIF 已完成远端校验。
 - GitHub 发布副本已包含当前命中脉冲动画：无红色冲击圈，扣费数字锚定余额金额上方，连续事件最多保留三组飘字。
@@ -37,6 +38,7 @@ corepack pnpm --dir packages/client/ui-token-monitor exec tsdown
 
 ## 已知问题与解决方案
 
+- GitHub `dsh-plugin` Topic 可进入公共生态聚合源，但 DSH 内置 Plugin Market 使用 `awesome-dsh-plugin` 的审核清单；如需进入内置市场，仍需向该清单提交收录 PR。
 - 此发布副本不是完整 DSH workspace，Client bundle 需在 `<dsh-root>` 或另一个完整 DSH 仓库中执行。
 - Windows 上 GUI / Web 测试进程曾以退出码 `3221226505` 异常退出；命名类改动优先执行文本扫描、配置解析和 Client bundle 快速验证。
 - 旧兼容标识不可直接全量替换；如未来要重命名包名、API 或存储路径，必须提供旧名别名与数据迁移。

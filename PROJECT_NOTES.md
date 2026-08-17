@@ -3,6 +3,7 @@
 ## 最近状态摘要
 
 - 2026-08-17：公开项目品牌由 `dsh-token-monitor` 更名为 `dsh-damage-pulse`，核心卖点定位为“每次 Token 消耗都会触发扣血飘字与余额受击回弹”。
+- 2026-08-17：公开仓库已正式发布，默认分支为 `master`；发布提交 `e904795`，README 与连续扣费 GIF 已完成远端校验。
 - GitHub 发布副本已包含当前命中脉冲动画：无红色冲击圈，扣费数字锚定余额金额上方，连续事件最多保留三组飘字。
 - 连续扣费 GIF 已加入 `docs/assets/dsh-damage-pulse-continuous-charges.gif` 并嵌入 README；同一文件另存桌面便于直接查看和发布。
 - 为避免破坏已有安装和历史数据，目录名、workspace 包名、插件运行标识、API 路径、settings namespace、localStorage key 和数据目录暂时保留旧兼容标识。
@@ -39,3 +40,4 @@ corepack pnpm --dir packages/client/ui-token-monitor exec tsdown
 - 此发布副本不是完整 DSH workspace，Client bundle 需在 `<dsh-root>` 或另一个完整 DSH 仓库中执行。
 - Windows 上 GUI / Web 测试进程曾以退出码 `3221226505` 异常退出；命名类改动优先执行文本扫描、配置解析和 Client bundle 快速验证。
 - 旧兼容标识不可直接全量替换；如未来要重命名包名、API 或存储路径，必须提供旧名别名与数据迁移。
+- 本项目未新增第三方依赖；完整 DSH 宿主锁文件的生产审计当前仍有 25 项既有 advisory（12 high / 12 moderate / 1 low），扫描路径不包含 `ui-token-monitor` 或 `dsh-token-monitor`，应由宿主仓库单独升级处置。

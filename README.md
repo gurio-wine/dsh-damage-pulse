@@ -76,15 +76,29 @@ node --import tsx/esm apps/cli/src/bin.ts web --patch <dsh-root>/plugins/dsh-tok
 
 Client 组件通过 DSH 的 client-modules 机制加载：在 Web profile 的组合树（`packages/bundle/web-app` 的 `cordis.patch.yml`）中用**包名**挂载 `@deepseek-ai/dsh-client-ui-token-monitor`（client 插件必须作为 workspace 包，`file://` 挂载的插件无法被 client-modules 扫描到）。
 
-### 5. 构建 Client bundle
+### 5. 应用侧边栏金额集成
 
-```bash
-cd packages/client/ui-token-monitor
-$env:DSH_BUILD_FACE = 'client'   # PowerShell；bash 用 export
-corepack pnpm exec tsdown
+DSH 当前没有开放“会话行尾部信息”的插件 slot，`ui-token-monitor` 无法仅靠自身包把累计金额插入左侧会话列表。请从本仓库根目录运行集成脚本；它会先备份 `ui-workspace` 的三个目标文件，再以幂等方式加入 `projectionValues.tokenCost.cost` 的读取和渲染：
+
+```powershell
+.\scripts\apply-sidebar-integration.ps1 -HarnessRoot 'C:\path\to\deepseek-harness'
 ```
 
-### 6. 启动
+脚本重复执行不会重复插入。若 Harness 上游改变了目标文件结构，脚本会停止并提示不匹配位置，不会猜测写入。
+
+### 6. 构建 Client bundle
+
+```powershell
+$env:DSH_BUILD_FACE = 'client'
+corepack pnpm --dir packages/client/ui-token-monitor exec tsdown
+corepack pnpm --dir packages/client/ui-workspace exec tsdown
+```
+
+### 7. 检查安装并启动
+
+```powershell
+.\scripts\verify-installation.ps1 -HarnessRoot 'C:\path\to\deepseek-harness'
+```
 
 ```bash
 node --import tsx/esm apps/cli/src/bin.ts web --patch ... --port 3080
@@ -113,8 +127,9 @@ node --import tsx/esm apps/cli/src/bin.ts web --patch ... --port 3080
 ## 常见问题
 
 - **余额卡片显示「未配置」**：未配置 `DEEPSEEK_API_KEY`，token 计量仍正常。
-- **侧边栏金额缺失**：插件加载前结束的旧会话需在下次启动时自动补齐（插件启动时对缺失投影的历史会话触发冷读 fold），启动后请稍等几秒再刷新页面。
-- **窗口启动后仍无动画**：确认启动命令带了 `--patch`，并已构建最新 client bundle（见第 5 步）。
+- **侧边栏金额完全不显示**：先运行第 5 步的侧边栏集成脚本，再重建 `ui-workspace` bundle。仅复制 Host 与 Client 插件不会修改 DSH 自带的会话行。
+- **只有旧会话没有金额**：插件加载前结束的旧会话需在下次启动时自动补齐（插件启动时对缺失投影的历史会话触发冷读 fold），启动后请稍等几秒再刷新页面。
+- **窗口启动后仍无动画**：确认启动命令带了 `--patch`，并已构建最新 client bundle（见第 6 步）。
 
 ## 许可证
 

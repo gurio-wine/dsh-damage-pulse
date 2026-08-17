@@ -74,6 +74,10 @@ export function selectPriceTable(ts: number, table: PricingTable = PRICE_TABLE):
 export interface CostBreakdown {
   costInput: number
   costCache: number
+  /** 缓存命中读取费用（costCache 的组成部分）。 */
+  costCacheRead: number
+  /** 缓存写入费用（按输入单价计价，costCache 的组成部分）。 */
+  costCacheWrite: number
   costOutput: number
   cost: number
   peak: boolean
@@ -134,11 +138,15 @@ export function priceUsage(
   const peak = isPeakHour(ts, active.peakHours)
   const rate = peak ? (resolved?.peak ?? FALLBACK) : (resolved?.offPeak ?? FALLBACK)
   const costInput = (inputTokens / 1e6) * rate.input
-  const costCache = (cacheReadTokens / 1e6) * rate.cacheHit + (cacheWriteTokens / 1e6) * rate.input
+  const costCacheRead = (cacheReadTokens / 1e6) * rate.cacheHit
+  const costCacheWrite = (cacheWriteTokens / 1e6) * rate.input
+  const costCache = costCacheRead + costCacheWrite
   const costOutput = (outputTokens / 1e6) * rate.output
   return {
     costInput,
     costCache,
+    costCacheRead,
+    costCacheWrite,
     costOutput,
     cost: costInput + costCache + costOutput,
     peak,

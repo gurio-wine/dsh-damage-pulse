@@ -41,6 +41,8 @@ function buildRecord(
     reasoningTokens: usage.reasoningTokens ?? 0,
     costInput: breakdown.costInput,
     costCache: breakdown.costCache,
+    costCacheRead: breakdown.costCacheRead,
+    costCacheWrite: breakdown.costCacheWrite,
     costOutput: breakdown.costOutput,
     cost: breakdown.cost,
     peak: breakdown.peak,
@@ -70,7 +72,11 @@ export function attachCollector(ctx: Context, storage: UsageStorage, priceTable:
 
     // 缓存未命中输入或缓存写入均按未命中处理；纯缓存读取使用普通动画。
     const damageKind = record.inputTokens > 0 || record.cacheWriteTokens > 0 ? 'miss' : 'normal'
-    recordCharge(record.cost, record.timestamp, damageKind)
+    recordCharge(record.cost, record.timestamp, damageKind, {
+      cacheHit: { tokens: record.cacheReadTokens, cost: record.costCacheRead },
+      cacheMiss: { tokens: record.inputTokens + record.cacheWriteTokens, cost: record.costInput + record.costCacheWrite },
+      output: { tokens: record.outputTokens, cost: record.costOutput },
+    })
 
     // 追加「单次用量」仅日志事件，供 Web Client 回放渲染单次用量行（F1）。
     // 仅日志事件不进模型 surface，非 SurfaceEventType 只需 (type, data)。

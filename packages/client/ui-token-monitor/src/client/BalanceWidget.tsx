@@ -38,10 +38,10 @@ const GREEN = '#30a46c'
 const KEYFRAMES = `
 @keyframes tkm-impact-float {
   0%   { opacity: 0; transform: translateY(6px) scale(0.5); }
-  14%  { opacity: 1; transform: translateY(-2px) scale(1.25); }
-  30%  { opacity: 1; transform: translateY(-7px) scale(0.98); }
-  70%  { opacity: 1; transform: translateY(-21px) scale(1); }
-  100% { opacity: 0; transform: translateY(-30px) scale(0.9); }
+  14%  { opacity: 1; transform: translateY(-6px) scale(1.25); }
+  30%  { opacity: 1; transform: translateY(-21px) scale(0.98); }
+  70%  { opacity: 1; transform: translateY(-63px) scale(1); }
+  100% { opacity: 0; transform: translateY(-90px) scale(0.9); }
 }
 @keyframes tkm-balance-hit {
   0%   { transform: translateY(0) scale(1); }
@@ -51,11 +51,11 @@ const KEYFRAMES = `
 }
 @keyframes tkm-miss-float {
   0%   { opacity: 0; filter: blur(1.5px); transform: translateY(9px) scale(0.36) rotate(-3deg); }
-  12%  { opacity: 1; filter: blur(0); transform: translateY(-4px) scale(1.52) rotate(1deg); }
-  23%  { transform: translate(-4px, -9px) scale(0.96) rotate(-1deg); }
-  34%  { transform: translate(3px, -13px) scale(1.08); }
-  64%  { opacity: 1; transform: translateY(-29px) scale(1); }
-  100% { opacity: 0; transform: translateY(-44px) scale(0.88); }
+  12%  { opacity: 1; filter: blur(0); transform: translateY(-12px) scale(1.52) rotate(1deg); }
+  23%  { transform: translate(-4px, -27px) scale(0.96) rotate(-1deg); }
+  34%  { transform: translate(3px, -39px) scale(1.08); }
+  64%  { opacity: 1; transform: translateY(-87px) scale(1); }
+  100% { opacity: 0; transform: translateY(-132px) scale(0.88); }
 }
 @keyframes tkm-balance-miss {
   0%   { transform: translate(0, 0) scale(1); }
@@ -66,9 +66,9 @@ const KEYFRAMES = `
   100% { transform: translate(0, 0) scale(1); text-shadow: none; }
 }
 @keyframes tkm-impact-float-reduced {
-  0%   { opacity: 0; transform: translateY(2px); }
-  35%  { opacity: 1; transform: translateY(-2px); }
-  100% { opacity: 0; transform: translateY(-10px); }
+  0%   { opacity: 0; transform: translateY(6px); }
+  35%  { opacity: 1; transform: translateY(-6px); }
+  100% { opacity: 0; transform: translateY(-30px); }
 }
 @media (prefers-reduced-motion: reduce) {
   .tkm-impact-float {
@@ -94,7 +94,7 @@ const FLOAT: React.CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
   pointerEvents: 'none',
   zIndex: 1001,
-  animation: 'tkm-impact-float 750ms cubic-bezier(.2,.86,.25,1) forwards',
+  animation: 'tkm-impact-float 1000ms cubic-bezier(.2,.86,.25,1) forwards',
   transformOrigin: '50% 70%',
   whiteSpace: 'nowrap',
   willChange: 'transform, opacity',
@@ -162,16 +162,25 @@ function isPeakNow(): boolean {
 interface FloatAnim {
   id: number
   text: string
-  color: string
+  color: 'red' | 'green'
   damageKind: DamageKind
+  label?: '命中' | '未命中' | '输出'
 }
 
-type DamageKind = 'normal' | 'miss'
+type DamageKind = 'normal' | 'miss' | 'output'
+
+interface PendingFloat {
+  text: string
+  color: 'red' | 'green'
+  kind: DamageKind
+  label?: FloatAnim['label']
+}
 
 const CHARGE_POLL_MS = 1_000
 const BALANCE_POLL_MS = 60_000
-const FLOAT_MS = 750
-const MISS_FLOAT_MS = 940
+const FLOAT_MS = 1_000
+const MISS_FLOAT_MS = 1_250
+const FLOAT_EMIT_INTERVAL_MS = 200
 const FLASH_MS = 620
 
 export function BalanceWidget(_props: BalanceWidgetProps) {
@@ -198,6 +207,8 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
   const animId = useRef(0)
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const animTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
+  const animQueue = useRef<PendingFloat[]>([])
+  const queueTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // 拖拽起点：按下时的鼠标位置 + 卡片位置。
   const dragStart = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
 
@@ -232,10 +243,12 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
     })
   }, [])
 
-  /** 触发一次飘字动画 + 余额数字闪烁 + 下沉回弹微动。 */
-  const trigger = useCallback((text: string, color: 'red' | 'green', kind: DamageKind = 'normal') => {
+  /** 将一条反馈真正发射到共同轨道。 */
+  const emit = useCallback((pending: PendingFloat) => {
+    const { text, color, kind, label } = pending
     const id = ++animId.current
-    setAnims((list) => [...list, { id, text, color, damageKind: kind }].slice(-3))
+    const next = { text, color, damageKind: kind, label }
+    setAnims((list) => [...list, { id, ...next }].slice(-3))
     setFlash(color)
     setDamageKind(kind)
     setDipKey((key) => key + 1)
@@ -248,10 +261,35 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
     animTimers.current.add(timer)
   }, [])
 
+  /** FIFO 发射器：首条立即出现，后续每 200ms 错峰发射。 */
+  const drainQueue = useCallback(function drain() {
+    const next = animQueue.current.shift()
+    if (next === undefined) {
+      queueTimer.current = undefined
+      return
+    }
+    emit(next)
+    // 保留一个完整发射间隔作为冷却窗，确保同批同步入队也会错峰。
+    queueTimer.current = setTimeout(drain, FLOAT_EMIT_INTERVAL_MS)
+  }, [emit])
+
+  /** 将反馈加入共同轨道队列，连续触发时保持可辨识的部分覆盖。 */
+  const trigger = useCallback((
+    text: string,
+    color: 'red' | 'green',
+    kind: DamageKind = 'normal',
+    label?: FloatAnim['label'],
+  ) => {
+    animQueue.current.push({ text, color, kind, label })
+    if (queueTimer.current === undefined && animQueue.current.length === 1) drainQueue()
+  }, [drainQueue])
+
   useEffect(() => () => {
     if (flashTimer.current !== undefined) clearTimeout(flashTimer.current)
+    if (queueTimer.current !== undefined) clearTimeout(queueTimer.current)
     animTimers.current.forEach((timer) => clearTimeout(timer))
     animTimers.current.clear()
+    animQueue.current = []
   }, [])
 
   // 峰谷状态刷新：每 30 秒重算一次（跨整点边界最多延迟 30 秒）。
@@ -270,7 +308,17 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
         if (!res.ok) return
         const data = (await res.json()) as {
           seq: number
-          events: Array<{ seq: number; cost: number; timestamp: number; damageKind?: DamageKind }>
+          events: Array<{
+            seq: number
+            cost: number
+            timestamp: number
+            damageKind?: 'normal' | 'miss'
+            breakdown?: {
+              cacheHit?: { tokens?: number; cost?: number }
+              cacheMiss?: { tokens?: number; cost?: number }
+              output?: { tokens?: number; cost?: number }
+            }
+          }>
         }
         if (!chargeSeeded.current) {
           // 首次：只建立游标基线（跳过余额接口已含的历史扣费，避免重复扣减）。
@@ -282,11 +330,49 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
         const events = data.events ?? []
         if (events.length === 0) return
         const total = events.reduce((sum, event) => sum + event.cost, 0)
-        const mergedDamageKind = events.some(event => event.damageKind === 'miss') ? 'miss' : 'normal'
+        const components = { hit: 0, miss: 0, output: 0 }
+        let hasBreakdown = true
+        for (const event of events) {
+          const b = event.breakdown
+          if (b === undefined) {
+            hasBreakdown = false
+            break
+          }
+          const hit = Number(b.cacheHit?.cost ?? 0)
+          const miss = Number(b.cacheMiss?.cost ?? 0)
+          const output = Number(b.output?.cost ?? 0)
+          if (![hit, miss, output, event.cost].every(Number.isFinite) || hit < 0 || miss < 0 || output < 0) {
+            hasBreakdown = false
+            break
+          }
+          const sum = hit + miss + output
+          if (Math.abs(sum - event.cost) > Math.max(1e-9, Math.abs(event.cost) * 1e-6)) {
+            hasBreakdown = false
+            break
+          }
+          components.hit += hit
+          components.miss += miss
+          components.output += output
+        }
+        if (!hasBreakdown) {
+          components.hit = 0
+          components.miss = 0
+          components.output = 0
+        }
+        const mergedDamageKind: 'normal' | 'miss' = hasBreakdown
+          ? (components.miss > 0 ? 'miss' : 'normal')
+          : (events.some(event => event.damageKind === 'miss') ? 'miss' : 'normal')
         if (cancelled) return
         // 余额本地扣减（仅在已有基线后生效）。
         setDisplay((prev) => (prev === null ? null : prev - total))
-        trigger(`-${fmtCost(total)}¥`, 'red', mergedDamageKind)
+        if (hasBreakdown) {
+          // 同一批次余额只扣一次；分量仅驱动动画。未命中最后触发以保持最强余额回弹。
+          if (components.hit > 0) trigger(`-${fmtCost(components.hit)}¥`, 'red', 'normal', '命中')
+          if (components.output > 0) trigger(`-${fmtCost(components.output)}¥`, 'red', 'output', '输出')
+          if (components.miss > 0) trigger(`-${fmtCost(components.miss)}¥`, 'red', 'miss', '未命中')
+        } else {
+          trigger(`-${fmtCost(total)}¥`, 'red', mergedDamageKind)
+        }
       } catch {
         // 扣费轮询失败静默（不影响余额显示）。
       }
@@ -372,18 +458,26 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
               display: anim.damageKind === 'miss' ? 'flex' : undefined,
               alignItems: anim.damageKind === 'miss' ? 'baseline' : undefined,
               gap: anim.damageKind === 'miss' ? 5 : undefined,
-              fontSize: anim.damageKind === 'miss' ? 23 : FLOAT.fontSize,
-              fontWeight: anim.damageKind === 'miss' ? 800 : FLOAT.fontWeight,
+              fontSize: anim.damageKind === 'miss' ? 23 : anim.damageKind === 'output' ? 13 : FLOAT.fontSize,
+              fontWeight: anim.damageKind === 'miss' ? 800 : anim.damageKind === 'output' ? 600 : FLOAT.fontWeight,
+              opacity: anim.damageKind === 'output' ? 0.72 : undefined,
               animation: anim.damageKind === 'miss'
-                ? 'tkm-miss-float 940ms cubic-bezier(.15,.88,.22,1) forwards'
+                ? 'tkm-miss-float 1250ms cubic-bezier(.15,.88,.22,1) forwards'
                 : FLOAT.animation,
               textShadow: anim.damageKind === 'miss'
                 ? '0 1px 3px rgba(0,0,0,0.72), 0 0 10px rgba(255,59,48,0.55)'
                 : FLOAT.textShadow,
             }}
           >
-            {anim.damageKind === 'miss' && (
-              <span style={{ color: RED, fontSize: 11, fontWeight: 800 }}>未命中</span>
+            {anim.label !== undefined && (
+              <span style={{
+                color: RED,
+                fontSize: anim.damageKind === 'output' ? 10 : 11,
+                fontWeight: anim.damageKind === 'output' ? 700 : 800,
+                marginRight: anim.damageKind === 'miss' ? 0 : 4,
+              }}>
+                {anim.label}
+              </span>
             )}
             <span>{anim.text}</span>
           </span>

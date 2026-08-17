@@ -23,6 +23,10 @@ export interface UsageRecord {
   reasoningTokens: number
   costInput: number
   costCache: number
+  /** 缓存命中读取费用。 */
+  costCacheRead: number
+  /** 缓存写入费用。 */
+  costCacheWrite: number
   costOutput: number
   cost: number
   /** 是否高峰时段计价。 */

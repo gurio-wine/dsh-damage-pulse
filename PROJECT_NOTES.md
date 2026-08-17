@@ -1,5 +1,9 @@
 # PROJECT_NOTES
 
+## 2026-08-17 GitHub 发布
+
+- 三分量共同轨道扣血动画与侧边栏金额集成修复已推送到 GitHub，功能提交为 `019cdf4`。远端文件树、README、安装脚本和动画实现均已核验；本地 `master` 与 `origin/master` 对齐。
+
 ## 2026-08-17 GitHub 版侧边栏金额修复
 
 - 根因：公开仓库只交付 Host 插件与 `ui-token-monitor` Client 包，但 README 宣称的左侧会话金额实际依赖本地 Harness 中对 `packages/client/ui-workspace` 的直接改动。DSH 尚无会话行尾部 additive slot，因此 GitHub 用户按旧文档安装后虽然能生成 `tokenCost` 投影，原版侧边栏仍不会读取或渲染它。

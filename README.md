@@ -1,0 +1,117 @@
+# dsh-token-monitor
+
+DSH（DeepSeek Harness）插件：监控每次对话的 token 消耗与金额、每个会话的累计用量、DeepSeek 账户实时余额，并把数据面板整合进 Web GUI 对话窗口。
+
+## 功能特性
+
+- **单次用量行**：每次模型调用结束，在对话流内插入一行 token 明细（输入 / 缓存命中 / 输出 / 思考 reasoning）与精确金额。
+- **会话累计条**：输入框上方显示当前会话累计 token 与金额（基于 `tokenCost` session projection）。
+- **侧边栏金额**：左侧会话列表为每个会话显示累计消费金额（蓝色），读自投影缓存，重启后自动补齐历史会话。
+- **余额悬浮窗**：右下角实时余额卡片：
+  - 扣费动画：每次模型调用完成，飘出红色 `-x.xx¥`（上飘 + 淡出），余额数字变红闪烁；
+  - 充值动画：检测到余额变多，飘出绿色 `+x.xx¥`；
+  - 可拖动：按住卡片可随意移动，位置自动记忆（localStorage）；
+  - 峰谷标识：余额栏最右侧显示「峰」（红 / 高峰）或「闲」（绿 / 闲时），带红绿灯发光效果。
+- **价格表**：内置 DeepSeek 2026-08-17 峰谷定价（含高峰 / 闲时区分），历史费用按每条调用发生的时间戳自动使用旧价，**涨价前已算的费用不会重算**。
+- **精确计费**：按每次调用的实际模型名计价（`deepseek-v4-pro` / `deepseek-v4-flash`，支持版本后缀前缀匹配），缓存命中与缓存未命中分别计价。
+
+## 架构
+
+| 部分 | 位置 | 职责 |
+|---|---|---|
+| Host 插件 | `plugins/dsh-token-monitor` | 监听 `session/event`，精确计费（token × 单价），注册 `tokenCost` session projection、余额轮询服务、HTTP 端点（balance / usage / charge-events / stats） |
+| Client 包 | `packages/client/ui-token-monitor` | Web GUI 组件：余额悬浮窗（BalanceWidget）、单次用量行、会话累计条，读投影与 HTTP 端点渲染 |
+
+## 安装与集成
+
+> 前置条件：DSH（DeepSeek Harness）仓库，Web profile 可运行。本插件依赖 DSH 仓库内部结构（tsconfig paths、pnpm workspace、client-modules 扫描机制），因此按「放入仓库内集成」的方式使用。
+
+### 1. 复制文件到 DSH 仓库
+
+```text
+# Host 插件
+<dsh-root>/plugins/dsh-token-monitor/            ← 本仓库 plugins/dsh-token-monitor/
+# Client 包
+<dsh-root>/packages/client/ui-token-monitor/     ← 本仓库 packages/client/ui-token-monitor/
+```
+
+### 2. 配置 tsconfig paths
+
+`plugins/` 不在 pnpm workspace 内，pnpm 严格模式下无顶层 `node_modules`，需在 `<dsh-root>/tsconfig.base.json` 的 `paths` 增加：
+
+```jsonc
+{
+  "compilerOptions": {
+    "paths": {
+      // zod 必须映射到目录（而非 index.js），让 tsc/tsx 经 package.json exports 解析
+      "zod": ["./node_modules/.pnpm/zod@4.4.3/node_modules/zod"]
+    }
+  }
+}
+```
+
+（实际版本号以你仓库 lockfile 为准。）
+
+### 3. 挂载 Host 插件（--patch）
+
+编辑 `plugins/dsh-token-monitor/cordis.patch.yml`，把 `name` 替换为你的 DSH 仓库绝对路径（**必须 `file://` URL**，Windows 下 `E:\...` 会被当 `e:` 协议报错）：
+
+```yaml
+- insert:
+    - id: dsh-token-monitor
+      name: 'file:///C:/dev/deepseek-harness/plugins/dsh-token-monitor/src/index.ts'
+```
+
+启动时带 `--patch`（launcher flags 必须位于内层参数之前）：
+
+```bash
+node --import tsx/esm apps/cli/src/bin.ts web --patch <dsh-root>/plugins/dsh-token-monitor/cordis.patch.yml --port 3080
+```
+
+### 4. 挂载 Client 包
+
+Client 组件通过 DSH 的 client-modules 机制加载：在 Web profile 的组合树（`packages/bundle/web-app` 的 `cordis.patch.yml`）中用**包名**挂载 `@deepseek-ai/dsh-client-ui-token-monitor`（client 插件必须作为 workspace 包，`file://` 挂载的插件无法被 client-modules 扫描到）。
+
+### 5. 构建 Client bundle
+
+```bash
+cd packages/client/ui-token-monitor
+$env:DSH_BUILD_FACE = 'client'   # PowerShell；bash 用 export
+corepack pnpm exec tsdown
+```
+
+### 6. 启动
+
+```bash
+node --import tsx/esm apps/cli/src/bin.ts web --patch ... --port 3080
+```
+
+启动后浏览器打开 `http://127.0.0.1:3080`。
+
+## 配置
+
+### API Key
+
+通过 DSH 的 credentials 机制配置 `DEEPSEEK_API_KEY`（`~/.dsh/.credentials.yaml`），未配置时余额卡片显示引导态，token 计量不受影响。
+
+### 价格表（可选覆盖）
+
+价格表默认内置（见 `src/pricing.ts`），可通过 settings namespace `dsh-token-monitor` 的 `priceTable` 字段覆盖新价格（旧价与高峰时段切换内置）。高峰时段默认北京时间 `9:00–12:00`、`14:00–18:00`。
+
+## HTTP 端点
+
+| 端点 | 说明 |
+|---|---|
+| `GET /api/token-monitor/balance` | DeepSeek 账户余额（含 currency / 总余额 / 赠送余额） |
+| `GET /api/token-monitor/usage?sessionId=` | 用量明细历史（可过滤会话） |
+| `GET /api/token-monitor/charge-events?since=<seq>` | 扣费事件增量（驱动余额扣减与飘字动画） |
+
+## 常见问题
+
+- **余额卡片显示「未配置」**：未配置 `DEEPSEEK_API_KEY`，token 计量仍正常。
+- **侧边栏金额缺失**：插件加载前结束的旧会话需在下次启动时自动补齐（插件启动时对缺失投影的历史会话触发冷读 fold），启动后请稍等几秒再刷新页面。
+- **窗口启动后仍无动画**：确认启动命令带了 `--patch`，并已构建最新 client bundle（见第 5 步）。
+
+## 许可证
+
+MIT

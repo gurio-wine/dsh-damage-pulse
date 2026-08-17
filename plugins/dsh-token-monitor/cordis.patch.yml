@@ -1,4 +1,5 @@
-# dsh-token-monitor 挂载层：把插件插入到 dsh 的组合树。
+# dsh-damage-pulse 挂载层：把插件插入到 dsh 的组合树。
+# 目录名和 patch id 保留 dsh-token-monitor，以兼容现有安装与配置。
 #
 # 集成方法：把本仓库的 plugins/dsh-token-monitor 放到你的 DSH 仓库 plugins/ 目录下，
 # 然后把下面的 name 替换成你的 DSH 仓库的绝对路径。

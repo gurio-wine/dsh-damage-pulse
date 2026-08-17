@@ -8,6 +8,15 @@ dist/
 *.log
 npm-debug.log*
 
+# 本机凭据与私钥
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+
 # 系统与编辑器
 .DS_Store
 Thumbs.db

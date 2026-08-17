@@ -1,6 +1,6 @@
 /**
  * Client 半的类型表：tokenCost 投影值、token-usage/record 事件数据与
- * Conversation Node data 的声明合并。与 Host 插件（dsh-token-monitor）的
+ * Conversation Node data 的声明合并。与 Host 插件（dsh-damage-pulse）的
  * 定义保持一致（client 聚合独立编译，故在此重复声明）。
  * @module @deepseek-ai/dsh-client-ui-token-monitor/client
  */

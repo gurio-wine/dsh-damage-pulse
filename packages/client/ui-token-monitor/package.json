@@ -7,7 +7,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "url": "git+https://github.com/wssfk12138/dsh-damage-pulse.git",
     "directory": "packages/client/ui-token-monitor"
   },
   "type": "module",

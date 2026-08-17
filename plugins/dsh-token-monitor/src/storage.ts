@@ -22,7 +22,7 @@ export class UsageStorage {
     try {
       mkdirSync(DATA_DIR, { recursive: true })
     } catch (error) {
-      console.warn(`[dsh-token-monitor] 创建数据目录失败: ${String(error)}`)
+      console.warn(`[dsh-damage-pulse] 创建数据目录失败: ${String(error)}`)
     }
     this.loadHistory()
   }
@@ -41,7 +41,7 @@ export class UsageStorage {
         }
       }
       if (this.records.length > 0) {
-        console.log(`[dsh-token-monitor] 已加载 ${this.records.length} 条历史明细`)
+        console.log(`[dsh-damage-pulse] 已加载 ${this.records.length} 条历史明细`)
       }
     } catch {
       // 首次运行无文件，静默
@@ -88,7 +88,7 @@ export class UsageStorage {
     try {
       appendFileSync(join(DATA_DIR, 'usage.jsonl'), `${JSON.stringify(record)}\n`, 'utf8')
     } catch (error) {
-      console.warn(`[dsh-token-monitor] 明细落盘失败: ${String(error)}`)
+      console.warn(`[dsh-damage-pulse] 明细落盘失败: ${String(error)}`)
     }
 
     return next

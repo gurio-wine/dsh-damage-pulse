@@ -1,5 +1,5 @@
 /**
- * dsh-token-monitor —— DeepSeek Harness Token 用量与金额监控插件。
+ * dsh-damage-pulse —— 用扣血动画呈现 Token 消耗的 DeepSeek Harness 余额监控插件。
  *
  * M1：Host 采集器 —— 监听 session/event，累计每次模型调用的 token 与金额。
  * M2：余额查询服务 —— 复用 ctx.credentials 取 key，定时轮询 DeepSeek /user/balance。
@@ -52,15 +52,15 @@ async function migrateMissingTokenCost(ctx: Context): Promise<void> {
       migrated++
     }
     if (migrated > 0) {
-      console.log(`[dsh-token-monitor] 已为 ${migrated} 个历史会话重建 tokenCost 投影`)
+      console.log(`[dsh-damage-pulse] 已为 ${migrated} 个历史会话重建 tokenCost 投影`)
     }
   } catch (error) {
-    console.warn(`[dsh-token-monitor] 历史会话投影迁移失败: ${String(error)}`)
+    console.warn(`[dsh-damage-pulse] 历史会话投影迁移失败: ${String(error)}`)
   }
 }
 
 export function apply(ctx: Context) {
-  console.log('[dsh-token-monitor] plugin loaded')
+  console.log('[dsh-damage-pulse] plugin loaded')
 
   // 价格表：settings 可覆盖，启动时读取一次（改后需重启生效）。
   // settings 在 web 装配里先于本插件就绪，故 inject 回调同步执行。
@@ -70,7 +70,7 @@ export function apply(ctx: Context) {
     const section = scope.get() as { priceTable?: PricingTable } | undefined
     if (section?.priceTable !== undefined) {
       priceTable = section.priceTable
-      console.log(`[dsh-token-monitor] 使用 settings 价格表 v${priceTable.version}`)
+      console.log(`[dsh-damage-pulse] 使用 settings 价格表 v${priceTable.version}`)
     }
   })
 
@@ -81,7 +81,7 @@ export function apply(ctx: Context) {
   // 条件注册 tokenCost projection：仅当组合树提供了 sessionProjections 服务时生效。
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(createTokenCostProjectionDefinition(priceTable))
-    console.log('[dsh-token-monitor] tokenCost projection registered')
+    console.log('[dsh-damage-pulse] tokenCost projection registered')
   })
 
   // 同步迁移：依赖 sessionProjections（确保 tokenCost 已注册）+ 缓存 + 持久化，
@@ -93,7 +93,7 @@ export function apply(ctx: Context) {
   // 条件注册余额/用量明细 HTTP 端点：仅 web 装配有 webServer 服务。
   ctx.inject(['webServer'], (webCtx) => {
     registerBalanceRoute(webCtx, balance)
-    console.log('[dsh-token-monitor] balance route registered')
+    console.log('[dsh-damage-pulse] balance route registered')
 
     // 用量明细历史查询端点（可按 sessionId 过滤）。
     webCtx.webServer.register({
@@ -107,7 +107,7 @@ export function apply(ctx: Context) {
         res.end(JSON.stringify(records))
       },
     })
-    console.log('[dsh-token-monitor] usage route registered')
+    console.log('[dsh-damage-pulse] usage route registered')
 
     // 扣费事件增量拉取端点（since=seq，返回严格大于 seq 的扣费），供余额卡片实时扣减 + 扣血动画。
     webCtx.webServer.register({
@@ -121,6 +121,6 @@ export function apply(ctx: Context) {
         res.end(JSON.stringify({ seq: currentChargeSeq(), events }))
       },
     })
-    console.log('[dsh-token-monitor] charge-events route registered')
+    console.log('[dsh-damage-pulse] charge-events route registered')
   })
 }

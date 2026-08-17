@@ -3,5 +3,5 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "dsh plugin: 监控每次对话的 token 消耗与金额、每个会话的累计用量、DeepSeek 账户余额，并把数据面板整合进 Web GUI 对话框。"
+  "description": "dsh-damage-pulse: 用扣血动画呈现每次 token 消耗，并监控会话用量、金额与 DeepSeek 账户余额。"
 }

@@ -66,7 +66,7 @@ export class BalanceService {
     if (apiKey === undefined) {
       // 未配置只告警一次，避免每次轮询刷屏。
       if (!this.warnedMissingKey) {
-        console.warn('[dsh-token-monitor] 未配置 DEEPSEEK_API_KEY，余额卡片将显示未配置态')
+        console.warn('[dsh-damage-pulse] 未配置 DEEPSEEK_API_KEY，余额卡片将显示未配置态')
         this.warnedMissingKey = true
       }
       return undefined
@@ -78,14 +78,14 @@ export class BalanceService {
       if (this.lastLoggedTotal !== next.totalBalance) {
         this.lastLoggedTotal = next.totalBalance
         console.log(
-          `[dsh-token-monitor] 余额 ${next.currency} ${next.totalBalance.toFixed(2)} ` +
+          `[dsh-damage-pulse] 余额 ${next.currency} ${next.totalBalance.toFixed(2)} ` +
             `(赠送 ${next.grantedBalance.toFixed(2)} / 充值 ${next.toppedUpBalance.toFixed(2)})`,
         )
       }
       return next
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.warn(`[dsh-token-monitor] 余额查询失败: ${message}`)
+      console.warn(`[dsh-damage-pulse] 余额查询失败: ${message}`)
       return undefined
     }
   }
@@ -114,7 +114,7 @@ export function attachBalance(ctx: Context): BalanceService {
   ctx.effect(() => {
     service.start()
     return () => service.stop()
-  }, 'dsh-token-monitor balance polling')
+  }, 'dsh-damage-pulse balance polling')
   return service
 }
 

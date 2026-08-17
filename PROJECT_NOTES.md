@@ -2,6 +2,7 @@
 
 ## 最近状态摘要
 
+- 2026-08-17：扣血动画升级为缓存感知双形态。纯缓存命中沿用普通命中脉冲；存在缓存未命中输入或缓存写入时，播放红色“未命中”增强动画（更大扣费值、短促横向抖动、更强余额回弹）。同一秒合并事件只要有一次未命中即按未命中播放，旧 Client 未提供 `damageKind` 时回退普通动画。
 - 2026-08-17：GitHub 仓库已添加 `dsh-plugin`、`dsh`、`deepseek-harness`、`deepseek`、`token-monitor`、`token-usage`、`balance-monitor`、`damage-animation` Topics；公共 DSH 目录可据 `dsh-plugin` Topic 抓取。
 - 2026-08-17：公开项目品牌由 `dsh-token-monitor` 更名为 `dsh-damage-pulse`，核心卖点定位为“每次 Token 消耗都会触发扣血飘字与余额受击回弹”。
 - 2026-08-17：公开仓库已正式发布，默认分支为 `master`；发布提交 `e904795`，README 与连续扣费 GIF 已完成远端校验。
@@ -33,7 +34,7 @@ corepack pnpm --dir packages/client/ui-token-monitor exec tsdown
 ## 当前开发状态
 
 - Host：Token 采集、精确计价、余额查询、会话投影、历史明细持久化已实现。
-- Client：单次用量、会话累计、余额悬浮栏、峰闲标识和命中脉冲扣血动画已实现。
+- Client：单次用量、会话累计、余额悬浮栏、峰闲标识，以及区分缓存命中/未命中的双形态扣血动画已实现。
 - 公开品牌：`dsh-damage-pulse`。
 
 ## 已知问题与解决方案
@@ -42,4 +43,5 @@ corepack pnpm --dir packages/client/ui-token-monitor exec tsdown
 - 此发布副本不是完整 DSH workspace，Client bundle 需在 `<dsh-root>` 或另一个完整 DSH 仓库中执行。
 - Windows 上 GUI / Web 测试进程曾以退出码 `3221226505` 异常退出；命名类改动优先执行文本扫描、配置解析和 Client bundle 快速验证。
 - 旧兼容标识不可直接全量替换；如未来要重命名包名、API 或存储路径，必须提供旧名别名与数据迁移。
+- 插件独立 `tsc` 会因发布副本缺少完整 workspace 边界而报既有 `TS6307`/vendor 错误；本次以完整 Harness 中的 Client TypeScript、bundle、事件运行时冒烟和两份源码哈希一致性作为核心验收。Harness 全量 GUI 测试仍受既有 `FiberState` 与 jsdom `Range.getBoundingClientRect` 运行时错误影响。
 - 本项目未新增第三方依赖；完整 DSH 宿主锁文件的生产审计当前仍有 25 项既有 advisory（12 high / 12 moderate / 1 low），扫描路径不包含 `ui-token-monitor` 或 `dsh-token-monitor`，应由宿主仓库单独升级处置。

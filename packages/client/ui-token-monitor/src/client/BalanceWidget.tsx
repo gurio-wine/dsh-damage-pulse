@@ -49,6 +49,22 @@ const KEYFRAMES = `
   58%  { transform: translateY(-1px) scale(1.015); }
   100% { transform: translateY(0) scale(1); }
 }
+@keyframes tkm-miss-float {
+  0%   { opacity: 0; filter: blur(1.5px); transform: translateY(9px) scale(0.36) rotate(-3deg); }
+  12%  { opacity: 1; filter: blur(0); transform: translateY(-4px) scale(1.52) rotate(1deg); }
+  23%  { transform: translate(-4px, -9px) scale(0.96) rotate(-1deg); }
+  34%  { transform: translate(3px, -13px) scale(1.08); }
+  64%  { opacity: 1; transform: translateY(-29px) scale(1); }
+  100% { opacity: 0; transform: translateY(-44px) scale(0.88); }
+}
+@keyframes tkm-balance-miss {
+  0%   { transform: translate(0, 0) scale(1); }
+  12%  { transform: translate(-3px, 4px) scale(0.94); text-shadow: 0 0 8px rgba(255,59,48,0.7); }
+  23%  { transform: translate(3px, 1px) scale(1.04); }
+  34%  { transform: translate(-2px, -1px) scale(0.99); }
+  48%  { transform: translate(1px, 0) scale(1.015); }
+  100% { transform: translate(0, 0) scale(1); text-shadow: none; }
+}
 @keyframes tkm-impact-float-reduced {
   0%   { opacity: 0; transform: translateY(2px); }
   35%  { opacity: 1; transform: translateY(-2px); }
@@ -58,7 +74,11 @@ const KEYFRAMES = `
   .tkm-impact-float {
     animation: tkm-impact-float-reduced 180ms ease-out forwards !important;
   }
-  .tkm-balance-hit {
+  .tkm-miss-float {
+    animation: tkm-impact-float-reduced 180ms ease-out forwards !important;
+  }
+  .tkm-balance-hit,
+  .tkm-balance-miss {
     animation: none !important;
   }
 }
@@ -143,11 +163,15 @@ interface FloatAnim {
   id: number
   text: string
   color: string
+  damageKind: DamageKind
 }
+
+type DamageKind = 'normal' | 'miss'
 
 const CHARGE_POLL_MS = 1_000
 const BALANCE_POLL_MS = 60_000
 const FLOAT_MS = 750
+const MISS_FLOAT_MS = 940
 const FLASH_MS = 620
 
 export function BalanceWidget(_props: BalanceWidgetProps) {
@@ -160,6 +184,7 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
   const [flash, setFlash] = useState<'red' | 'green' | null>(null)
   // 下沉回弹微动触发器：每次扣费/加费递增，重新挂载数字使 dip 动画重播。
   const [dipKey, setDipKey] = useState(0)
+  const [damageKind, setDamageKind] = useState<DamageKind>('normal')
   const [anims, setAnims] = useState<FloatAnim[]>([])
   // 悬浮窗位置（left/top），初始从 localStorage 恢复或默认右下角。
   const [pos, setPos] = useState<{ left: number; top: number }>(loadPos)
@@ -208,17 +233,18 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
   }, [])
 
   /** 触发一次飘字动画 + 余额数字闪烁 + 下沉回弹微动。 */
-  const trigger = useCallback((text: string, color: 'red' | 'green') => {
+  const trigger = useCallback((text: string, color: 'red' | 'green', kind: DamageKind = 'normal') => {
     const id = ++animId.current
-    setAnims((list) => [...list, { id, text, color }].slice(-3))
+    setAnims((list) => [...list, { id, text, color, damageKind: kind }].slice(-3))
     setFlash(color)
+    setDamageKind(kind)
     setDipKey((key) => key + 1)
     if (flashTimer.current !== undefined) clearTimeout(flashTimer.current)
     flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS)
     const timer = setTimeout(() => {
       animTimers.current.delete(timer)
       setAnims((list) => list.filter((anim) => anim.id !== id))
-    }, FLOAT_MS)
+    }, kind === 'miss' ? MISS_FLOAT_MS : FLOAT_MS)
     animTimers.current.add(timer)
   }, [])
 
@@ -242,7 +268,10 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
       try {
         const res = await fetch(`/api/token-monitor/charge-events?since=${chargeSeq.current}`, { cache: 'no-store' })
         if (!res.ok) return
-        const data = (await res.json()) as { seq: number; events: Array<{ seq: number; cost: number; timestamp: number }> }
+        const data = (await res.json()) as {
+          seq: number
+          events: Array<{ seq: number; cost: number; timestamp: number; damageKind?: DamageKind }>
+        }
         if (!chargeSeeded.current) {
           // 首次：只建立游标基线（跳过余额接口已含的历史扣费，避免重复扣减）。
           chargeSeeded.current = true
@@ -253,10 +282,11 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
         const events = data.events ?? []
         if (events.length === 0) return
         const total = events.reduce((sum, event) => sum + event.cost, 0)
+        const mergedDamageKind = events.some(event => event.damageKind === 'miss') ? 'miss' : 'normal'
         if (cancelled) return
         // 余额本地扣减（仅在已有基线后生效）。
         setDisplay((prev) => (prev === null ? null : prev - total))
-        trigger(`-${fmtCost(total)}¥`, 'red')
+        trigger(`-${fmtCost(total)}¥`, 'red', mergedDamageKind)
       } catch {
         // 扣费轮询失败静默（不影响余额显示）。
       }
@@ -332,19 +362,44 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
           display: 'inline-block',
         }}
       >
-        {anims.map((anim) => (
-          <span key={anim.id} className="tkm-impact-float" style={{ ...FLOAT, color: anim.color }}>{anim.text}</span>
+        {anims.map(anim => (
+          <span
+            key={anim.id}
+            className={anim.damageKind === 'miss' ? 'tkm-miss-float' : 'tkm-impact-float'}
+            style={{
+              ...FLOAT,
+              color: anim.color,
+              display: anim.damageKind === 'miss' ? 'flex' : undefined,
+              alignItems: anim.damageKind === 'miss' ? 'baseline' : undefined,
+              gap: anim.damageKind === 'miss' ? 5 : undefined,
+              fontSize: anim.damageKind === 'miss' ? 23 : FLOAT.fontSize,
+              fontWeight: anim.damageKind === 'miss' ? 800 : FLOAT.fontWeight,
+              animation: anim.damageKind === 'miss'
+                ? 'tkm-miss-float 940ms cubic-bezier(.15,.88,.22,1) forwards'
+                : FLOAT.animation,
+              textShadow: anim.damageKind === 'miss'
+                ? '0 1px 3px rgba(0,0,0,0.72), 0 0 10px rgba(255,59,48,0.55)'
+                : FLOAT.textShadow,
+            }}
+          >
+            {anim.damageKind === 'miss' && (
+              <span style={{ color: RED, fontSize: 11, fontWeight: 800 }}>未命中</span>
+            )}
+            <span>{anim.text}</span>
+          </span>
         ))}
         <span
           key={dipKey}
-          className="tkm-balance-hit"
+          className={damageKind === 'miss' ? 'tkm-balance-miss' : 'tkm-balance-hit'}
           style={{
             fontWeight: 700,
             fontVariantNumeric: 'tabular-nums',
             display: 'inline-block',
             color: amountColor,
             transition: 'color 0.25s ease',
-            animation: 'tkm-balance-hit 440ms cubic-bezier(.2,.9,.25,1)',
+            animation: damageKind === 'miss'
+              ? 'tkm-balance-miss 620ms cubic-bezier(.2,.86,.25,1)'
+              : 'tkm-balance-hit 440ms cubic-bezier(.2,.9,.25,1)',
           }}
         >
           {balanceInfo.currency} {shown.toFixed(2)}

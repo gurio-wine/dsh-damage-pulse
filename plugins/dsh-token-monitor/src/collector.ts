@@ -68,8 +68,9 @@ export function attachCollector(ctx: Context, storage: UsageStorage, priceTable:
     )
     storage.add(record)
 
-    // 记录扣费事件，供余额卡片实时扣减 + 扣血动画。
-    recordCharge(record.cost, record.timestamp)
+    // 缓存未命中输入或缓存写入均按未命中处理；纯缓存读取使用普通动画。
+    const damageKind = record.inputTokens > 0 || record.cacheWriteTokens > 0 ? 'miss' : 'normal'
+    recordCharge(record.cost, record.timestamp, damageKind)
 
     // 追加「单次用量」仅日志事件，供 Web Client 回放渲染单次用量行（F1）。
     // 仅日志事件不进模型 surface，非 SurfaceEventType 只需 (type, data)。

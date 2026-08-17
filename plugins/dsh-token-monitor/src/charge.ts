@@ -5,6 +5,9 @@
  * @module dsh-token-monitor/charge
  */
 
+/** 扣血动画类型：缓存命中走普通反馈，缓存未命中/写入走增强反馈。 */
+export type DamageKind = 'normal' | 'miss'
+
 /** 一次模型调用的扣费事件。 */
 export interface ChargeEvent {
   /** 单调递增序号，Client 用它做增量拉取游标。 */
@@ -13,6 +16,8 @@ export interface ChargeEvent {
   cost: number
   /** 扣费发生时间（epoch ms）。 */
   timestamp: number
+  /** Client 应播放的扣血动画类型。 */
+  damageKind: DamageKind
 }
 
 /** 环形缓冲区上限：保留最近 500 次扣费，避免长期运行无限增长。 */
@@ -22,8 +27,8 @@ const events: ChargeEvent[] = []
 let seqCounter = 0
 
 /** 记录一次扣费（cost 为正数金额）。 */
-export function recordCharge(cost: number, timestamp: number): void {
-  events.push({ seq: ++seqCounter, cost, timestamp })
+export function recordCharge(cost: number, timestamp: number, damageKind: DamageKind): void {
+  events.push({ seq: ++seqCounter, cost, timestamp, damageKind })
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS)
 }
 

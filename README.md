@@ -9,7 +9,7 @@ DSH（DeepSeek Harness）扣血式 Token 余额监控插件：每次产生 token
 - **单次用量行**：每次模型调用结束，在对话流内插入一行 token 明细（输入 / 缓存命中 / 输出 / 思考 reasoning）与精确金额。
 - **会话累计条**：输入框上方显示当前会话累计 token 与金额（基于 `tokenCost` session projection）。
 - **侧边栏金额**：左侧会话列表为每个会话显示累计消费金额（蓝色），读自投影缓存，重启后自动补齐历史会话。
-- **扣血动画**：右下角实时余额卡片在每次模型调用完成后飘出红色 `-x.xx¥`，余额数字同步变红并下沉回弹；连续扣费时最多保留三组飘字，反馈紧凑且不遮挡余额。
+- **缓存感知扣血动画**：纯缓存命中使用普通红色 `-x.xx¥` 命中脉冲；存在缓存未命中输入或缓存写入时，显示更大的红色「未命中 -x.xx¥」、短促横向抖动和更强的余额回弹。同一秒合并的多笔扣费中只要有一次未命中，整组即按未命中播放；连续扣费最多保留三组飘字。
 - **余额悬浮窗**：
   - 充值动画：检测到余额变多，飘出绿色 `+x.xx¥`；
   - 可拖动：按住卡片可随意移动，位置自动记忆（localStorage）；
@@ -108,7 +108,7 @@ node --import tsx/esm apps/cli/src/bin.ts web --patch ... --port 3080
 |---|---|
 | `GET /api/token-monitor/balance` | DeepSeek 账户余额（含 currency / 总余额 / 赠送余额） |
 | `GET /api/token-monitor/usage?sessionId=` | 用量明细历史（可过滤会话） |
-| `GET /api/token-monitor/charge-events?since=<seq>` | 扣费事件增量（驱动余额扣减与飘字动画） |
+| `GET /api/token-monitor/charge-events?since=<seq>` | 扣费事件增量（含 `damageKind`，驱动缓存感知扣血动画） |
 
 ## 常见问题
 

@@ -7,21 +7,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 // Type-only：触发 ctx.webServer 的 Context 声明合并。
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { selectBalanceInfo, type BalanceResponse } from './balance-selection.ts'
 import type { BalanceInfo } from './types.ts'
 
 const DEEPSEEK_API_KEY = credentialRef('DEEPSEEK_API_KEY')
 const BALANCE_URL = 'https://api.deepseek.com/user/balance'
-
-/** DeepSeek /user/balance 原始响应（金额字段为字符串）。 */
-interface BalanceResponse {
-  is_available?: boolean
-  balance_infos?: Array<{
-    currency?: string
-    total_balance?: string
-    granted_balance?: string
-    topped_up_balance?: string
-  }>
-}
 
 /** 从 ctx.credentials 解析 DeepSeek API key（每操作重新解析，遵循凭据热更新约定）。 */
 export async function resolveApiKey(ctx: Context): Promise<string | undefined> {
@@ -37,12 +27,9 @@ export async function fetchBalance(apiKey: string): Promise<BalanceInfo> {
   })
   if (!res.ok) throw new Error(`balance HTTP ${res.status}`)
   const json = (await res.json()) as BalanceResponse
-  const info = json.balance_infos?.[0]
+  const info = selectBalanceInfo(json)
   return {
-    currency: info?.currency ?? 'CNY',
-    totalBalance: Number(info?.total_balance ?? 0),
-    grantedBalance: Number(info?.granted_balance ?? 0),
-    toppedUpBalance: Number(info?.topped_up_balance ?? 0),
+    ...info,
     isAvailable: json.is_available !== false,
     updatedAt: Date.now(),
   }

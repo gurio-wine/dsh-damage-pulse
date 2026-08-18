@@ -1,5 +1,9 @@
 # PROJECT_NOTES
 
+## 2026-08-18 README 赞助商入口
+
+- 在 README 项目简介后加入 FastAiToken 推荐词与注册链接，明确展示 0.06 倍率 ChatGPT 分组、5.6 Sol、5.6 Terra 和 Claude Fable 5，并披露链接包含推广参数。
+
 ## 2026-08-18 Issue #1：标准预编译组合包
 
 - 根因：仓库原先只有 `plugins/` Host 与 `packages/client/` Client 源码，没有根级 `package.json`、`dsh.bundle`、`dsh.client` 或可加载的预编译 `lib/`，因此 bundled DSH 无法按市场/插件流程安装。

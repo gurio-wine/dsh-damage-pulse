@@ -1,5 +1,14 @@
 # PROJECT_NOTES
 
+## 2026-08-18 Issue #1：标准预编译组合包
+
+- 根因：仓库原先只有 `plugins/` Host 与 `packages/client/` Client 源码，没有根级 `package.json`、`dsh.bundle`、`dsh.client` 或可加载的预编译 `lib/`，因此 bundled DSH 无法按市场/插件流程安装。
+- 修复：新增根级标准包 `dsh-damage-pulse@0.2.0`，同时声明 `dsh.bundle` 与 Web `dsh.client`，提交 `lib/index.js`、`lib/client.js` 和 source map；Host/Client 通过独立 `tsconfig.bundle.json` 构建，不依赖完整 Harness 源码树。
+- 安装：`dsh plugin --profile web add github:wssfk12138/dsh-damage-pulse`，无需复制源码、手工 `--patch`、改 tsconfig 或重建 Client。
+- 能力边界：余额栏、缓存命中/未命中/输出三分量扣血动画、单次用量行、输入区会话累计均由标准包提供；原生左侧会话行累计金额仍是无官方 slot 时的源码可选增强，脚本保持独立。
+- 验证：`pnpm install --frozen-lockfile`、`pnpm build`、`check:bundle`、`pnpm pack --dry-run` 通过；在独立 DSH profile 中安装 tarball 并通过 `--dump-config` 确认组合层已加入。中文路径 tarball 直装会被 Windows CLI 拆分，已用纯 ASCII 路径复验成功。
+- 后续：推送后用 GitHub 地址再做一次 profile 安装回归，评论并关闭 Issue #1。
+
 ## 2026-08-17 GitHub 发布
 
 - 三分量共同轨道扣血动画与侧边栏金额集成修复已推送到 GitHub，功能提交为 `019cdf4`。远端文件树、README、安装脚本和动画实现均已核验；本地 `master` 与 `origin/master` 对齐。

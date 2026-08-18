@@ -1,6 +1,9 @@
 # 依赖与构建产物
 node_modules/
-lib/
+# Root lib/ is the prebuilt standard plugin artifact. Nested source-copy
+# artifacts remain local build output.
+plugins/*/lib/
+packages/*/*/lib/
 dist/
 *.tsbuildinfo
 

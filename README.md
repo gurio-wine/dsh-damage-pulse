@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）扣血式 Token 余额监控插件：每次产生 token
 
 - **单次用量行**：每次模型调用结束，在对话流内插入一行 token 明细（输入 / 缓存命中 / 输出 / 思考 reasoning）与精确金额。
 - **会话累计条**：输入框上方显示当前会话累计 token 与金额（基于 `tokenCost` session projection）。
-- **侧边栏金额**：左侧会话列表为每个会话显示累计消费金额（蓝色），读自投影缓存，重启后自动补齐历史会话。
+- **会话累计金额**：输入区持续显示当前会话累计消费；源码集成版还可选在左侧原生会话列表显示累计金额。
 - **缓存感知扣血动画**：纯缓存命中使用普通红色 `-x.xx¥` 命中脉冲；存在缓存未命中输入或缓存写入时，显示更大的红色「未命中 -x.xx¥」、短促横向抖动和更强的余额回弹。同一秒合并的多笔扣费中只要有一次未命中，整组即按未命中播放；连续扣费最多保留三组飘字。
 - **余额悬浮窗**：
   - 充值动画：检测到余额变多，飘出绿色 `+x.xx¥`；
@@ -26,85 +26,43 @@ DSH（DeepSeek Harness）扣血式 Token 余额监控插件：每次产生 token
 | Host 插件 | `plugins/dsh-token-monitor` | 监听 `session/event`，精确计费（token × 单价），注册 `tokenCost` session projection、余额轮询服务、HTTP 端点（balance / usage / charge-events / stats） |
 | Client 包 | `packages/client/ui-token-monitor` | Web GUI 组件：余额悬浮窗（BalanceWidget）、单次用量行、会话累计条，读投影与 HTTP 端点渲染 |
 
-## 安装与集成
+## 安装
 
-> 前置条件：DSH（DeepSeek Harness）仓库，Web profile 可运行。本插件依赖 DSH 仓库内部结构（tsconfig paths、pnpm workspace、client-modules 扫描机制），因此按「放入仓库内集成」的方式使用。
+本仓库从 `0.2.0` 起是标准 DSH Host + Client 组合包，已提交预编译产物。无需复制源码、修改 DSH `tsconfig`、手动传入 `--patch` 或重建 Client bundle。
 
-### 1. 复制文件到 DSH 仓库
-
-```text
-# Host 插件
-<dsh-root>/plugins/dsh-token-monitor/            ← 本仓库 plugins/dsh-token-monitor/
-# Client 包
-<dsh-root>/packages/client/ui-token-monitor/     ← 本仓库 packages/client/ui-token-monitor/
+```powershell
+dsh plugin --profile web add github:wssfk12138/dsh-damage-pulse
 ```
 
-### 2. 配置 tsconfig paths
+安装后重启 Web profile：
 
-`plugins/` 不在 pnpm workspace 内，pnpm 严格模式下无顶层 `node_modules`，需在 `<dsh-root>/tsconfig.base.json` 的 `paths` 增加：
-
-```jsonc
-{
-  "compilerOptions": {
-    "paths": {
-      // zod 必须映射到目录（而非 index.js），让 tsc/tsx 经 package.json exports 解析
-      "zod": ["./node_modules/.pnpm/zod@4.4.3/node_modules/zod"]
-    }
-  }
-}
+```powershell
+dsh --profile web
 ```
 
-（实际版本号以你仓库 lockfile 为准。）
+标准包直接提供余额悬浮栏、余额实时扣减、缓存命中/未命中动画、单次用量行和输入区会话累计。升级自早期源码集成版时，请移除原有手工 `--patch` 或重复挂载项，避免同一插件加载两次。
 
-### 3. 挂载 Host 插件（--patch）
+### 可选：原生侧边栏金额源码增强
 
-编辑 `plugins/dsh-token-monitor/cordis.patch.yml`，把 `name` 替换为你的 DSH 仓库绝对路径（**必须 `file://` URL**，Windows 下 `E:\...` 会被当 `e:` 协议报错）：
+DSH 当前没有开放“左侧会话行尾部信息”的第三方 slot，因此标准包不会修改宿主 DOM，也不会强行注入左侧会话列表。标准包内的输入区会话累计不受影响。
 
-```yaml
-- insert:
-    - id: dsh-token-monitor
-      name: 'file:///C:/dev/deepseek-harness/plugins/dsh-token-monitor/src/index.ts'
-```
-
-启动时带 `--patch`（launcher flags 必须位于内层参数之前）：
-
-```bash
-node --import tsx/esm apps/cli/src/bin.ts web --patch <dsh-root>/plugins/dsh-token-monitor/cordis.patch.yml --port 3080
-```
-
-### 4. 挂载 Client 包
-
-Client 组件通过 DSH 的 client-modules 机制加载：在 Web profile 的组合树（`packages/bundle/web-app` 的 `cordis.patch.yml`）中用**包名**挂载 `@deepseek-ai/dsh-client-ui-token-monitor`（client 插件必须作为 workspace 包，`file://` 挂载的插件无法被 client-modules 扫描到）。
-
-### 5. 应用侧边栏金额集成
-
-DSH 当前没有开放“会话行尾部信息”的插件 slot，`ui-token-monitor` 无法仅靠自身包把累计金额插入左侧会话列表。请从本仓库根目录运行集成脚本；它会先备份 `ui-workspace` 的三个目标文件，再以幂等方式加入 `projectionValues.tokenCost.cost` 的读取和渲染：
+只有在使用完整 DSH 源码且确实需要原生左侧会话行金额时，才运行：
 
 ```powershell
 .\scripts\apply-sidebar-integration.ps1 -HarnessRoot 'C:\path\to\deepseek-harness'
-```
-
-脚本重复执行不会重复插入。若 Harness 上游改变了目标文件结构，脚本会停止并提示不匹配位置，不会猜测写入。
-
-### 6. 构建 Client bundle
-
-```powershell
 $env:DSH_BUILD_FACE = 'client'
-corepack pnpm --dir packages/client/ui-token-monitor exec tsdown
-corepack pnpm --dir packages/client/ui-workspace exec tsdown
+corepack pnpm --dir 'C:\path\to\deepseek-harness\packages\client\ui-workspace' exec tsdown
 ```
 
-### 7. 检查安装并启动
+脚本会先备份三个目标文件，并以幂等方式读取 `projectionValues.tokenCost.cost`。上游结构不匹配时会停止，不会猜测写入。
+
+### 源码开发
 
 ```powershell
-.\scripts\verify-installation.ps1 -HarnessRoot 'C:\path\to\deepseek-harness'
+corepack pnpm install
+corepack pnpm build
+corepack pnpm run check:bundle
 ```
-
-```bash
-node --import tsx/esm apps/cli/src/bin.ts web --patch ... --port 3080
-```
-
-启动后浏览器打开 `http://127.0.0.1:3080`。
 
 ## 配置
 
@@ -127,9 +85,9 @@ node --import tsx/esm apps/cli/src/bin.ts web --patch ... --port 3080
 ## 常见问题
 
 - **余额卡片显示「未配置」**：未配置 `DEEPSEEK_API_KEY`，token 计量仍正常。
-- **侧边栏金额完全不显示**：先运行第 5 步的侧边栏集成脚本，再重建 `ui-workspace` bundle。仅复制 Host 与 Client 插件不会修改 DSH 自带的会话行。
+- **左侧原生会话行没有金额**：这是源码增强功能，不属于标准包能力；需要完整 DSH 源码并执行上面的侧边栏集成脚本。输入区会话累计仍可正常使用。
 - **只有旧会话没有金额**：插件加载前结束的旧会话需在下次启动时自动补齐（插件启动时对缺失投影的历史会话触发冷读 fold），启动后请稍等几秒再刷新页面。
-- **窗口启动后仍无动画**：确认启动命令带了 `--patch`，并已构建最新 client bundle（见第 6 步）。
+- **窗口启动后仍无动画**：确认已重启安装目标 profile；若以前使用过源码集成版，先删除旧的手工 patch 和重复挂载。
 
 ## 许可证
 

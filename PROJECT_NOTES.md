@@ -1,5 +1,11 @@
 # PROJECT_NOTES
 
+## 2026-08-18 Linux.do 发帖规范适配
+
+- 移除 README 顶部 FastAiToken 注册/AFF、返利披露和中转站新手文档推广，避免公开仓库被 Linux.do 文章作为间接 AFF 或商业引流入口。
+- 新增“社区与反馈”小节，使用普通 `https://linux.do/` 友链表达项目认可并连接社区；明确安装、运行和功能不依赖任何中转服务、充值渠道或返利计划。
+- 目标：README 以开源项目功能和安装方式为主，适合配合 Linux.do「开源推广」规则使用。
+
 ## 2026-08-18 README 赞助商入口
 
 - 在 README 项目简介后加入 FastAiToken 推荐词与注册链接，明确展示 0.06 倍率 ChatGPT 分组、5.6 Sol、5.6 Terra 和 Claude Fable 5，并披露链接包含推广参数。

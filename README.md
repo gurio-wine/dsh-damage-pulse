@@ -95,3 +95,9 @@ corepack pnpm run check:bundle
 ## 许可证
 
 MIT
+
+## 支持作者
+
+如果这个项目对你有帮助，欢迎自愿赞赏，支持后续维护和更多开源项目。赞赏完全自愿，不影响插件的任何功能、技术支持或后续更新。
+
+<img src="docs/assets/support-author.jpg" alt="赞赏码" width="280">

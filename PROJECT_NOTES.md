@@ -1,5 +1,10 @@
 # PROJECT_NOTES
 
+## 2026-08-19 README 支持作者入口
+
+- 将桌面赞赏码复制为 `docs/assets/support-author.jpg`，在 README 末尾新增“支持作者”栏目，以固定宽度展示。
+- 明确赞赏完全自愿，不影响插件功能、技术支持或后续更新；不附加付费权益、AFF 或商业服务导流。
+
 ## 2026-08-18 Linux.do 发帖规范适配
 
 - 移除 README 顶部 FastAiToken 注册/AFF、返利披露和中转站新手文档推广，避免公开仓库被 Linux.do 文章作为间接 AFF 或商业引流入口。

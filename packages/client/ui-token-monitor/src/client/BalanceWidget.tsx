@@ -511,7 +511,7 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
           transition: 'color 0.3s ease, text-shadow 0.3s ease',
         }}
       >
-        {isPeak ? '峰' : '闲'}
+        {isPeak ? '峰' : '谷'}
       </span>
     </div>
   )

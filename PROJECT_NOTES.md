@@ -1,5 +1,10 @@
 # PROJECT_NOTES
 
+## 2026-08-19 README 章节目录
+
+- 在项目简介与演示图后新增两级目录，覆盖全部一级章节，以及安装和配置下的具体操作章节。
+- 目录使用 GitHub Markdown 自动生成的中文标题锚点，方便用户直接定位安装、API Key、价格表、FAQ 和支持作者等内容。
+
 ## 2026-08-19 README 支持作者入口
 
 - 将桌面赞赏码复制为 `docs/assets/support-author.jpg`，在 README 末尾新增“支持作者”栏目，以固定宽度展示。

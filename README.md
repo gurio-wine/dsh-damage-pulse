@@ -1,7 +1,7 @@
 # dsh-damage-pulse
 
 DSH（DeepSeek Harness）扣血式 Token 余额监控插件：每次产生 token 消耗，余额数字都会受击回弹，并飘出红色扣费数值；同时提供会话用量、精确金额和 DeepSeek 账户实时余额。
-![连续 Token 扣费时的命中脉冲扣血动画](docs/assets/dsh-damage-pulse-continuous-charges.gif)
+![峰谷时段 Token 扣费动画对比](docs/assets/dsh-damage-pulse-continuous-charges.gif)
 
 ## 功能特性
 

@@ -1,6 +1,6 @@
 /**
  * DeepSeek 峰谷定价价格表与计费引擎。
- * 价格表版本：2026-08-17（北京时间 00:00 生效）。
+ * 价格表版本：2026-08-21（按官方页面当前内容核对）。
  * 来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
  * 单位：元 / 百万 tokens。
  */
@@ -23,12 +23,18 @@ export interface PricingTable {
   version: string
 }
 
-/** 2026-08-17 起生效的峰谷价格（单位：元 / 百万 tokens）。 */
+/** 2026-08-21 核对的当前官方峰谷价格（单位：元 / 百万 tokens）。 */
 export const PRICE_TABLE: PricingTable = {
-  version: '2026-08-17',
+  version: '2026-08-21',
   // 高峰时段：北京时间 9:00-12:00、14:00-18:00（半开区间）。
   peakHours: [[9, 12], [14, 18]],
   models: {
+    // Vision Exp 的图片会先折算为 prompt tokens，并随文本输入一起进入 usage；
+    // 因此这里与官方表中的 Flash 使用同一组输入/输出单价，不额外增加图片费率。
+    'deepseek-v4-flash-vision-exp': {
+      offPeak: { input: 1.5, cacheHit: 0.05, output: 4.5 },
+      peak: { input: 3.0, cacheHit: 0.10, output: 9.0 },
+    },
     'deepseek-v4-flash': {
       offPeak: { input: 1.5, cacheHit: 0.05, output: 4.5 },
       peak: { input: 3.0, cacheHit: 0.10, output: 9.0 },
@@ -48,6 +54,10 @@ export const LEGACY_PRICE_TABLE: PricingTable = {
   version: 'legacy-before-2026-08-17',
   peakHours: [],
   models: {
+    'deepseek-v4-flash-vision-exp': {
+      offPeak: { input: 1.0, cacheHit: 0.02, output: 2.0 },
+      peak: { input: 1.0, cacheHit: 0.02, output: 2.0 },
+    },
     'deepseek-v4-flash': {
       offPeak: { input: 1.0, cacheHit: 0.02, output: 2.0 },
       peak: { input: 1.0, cacheHit: 0.02, output: 2.0 },
@@ -104,8 +114,8 @@ export function isPeakHour(ts: number, peakHours: Array<[number, number]>): bool
 }
 
 /**
- * 归一化模型名后查价：直接命中优先，否则用前缀匹配，
- * 使 `deepseek-v4-flash-0731` 归到 `deepseek-v4-flash`。
+ * 归一化模型名后查价：直接命中优先，否则按最长前缀匹配，
+ * 使 `deepseek-v4-flash-vision-exp-2026` 不会被较短的 Flash 前缀抢先匹配。
  */
 export function resolveModelPrice(
   model: string,
@@ -113,7 +123,7 @@ export function resolveModelPrice(
 ): { peak: ModelPrice; offPeak: ModelPrice } | undefined {
   const direct = table.models[model]
   if (direct !== undefined) return direct
-  for (const [name, price] of Object.entries(table.models)) {
+  for (const [name, price] of Object.entries(table.models).sort(([a], [b]) => b.length - a.length)) {
     if (model.startsWith(name)) return price
   }
   return undefined

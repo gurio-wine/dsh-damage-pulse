@@ -29,8 +29,8 @@ DSH（DeepSeek Harness）扣血式 Token 余额监控插件：每次产生 token
   - 充值动画：检测到余额变多，飘出绿色 `+x.xx¥`；
   - 可拖动：按住卡片可随意移动，位置自动记忆（localStorage）；
   - 峰谷标识：余额栏最右侧显示「峰」（红 / 高峰）或「谷」（绿 / 谷时），带红绿灯发光效果。
-- **价格表**：内置 DeepSeek 2026-08-17 峰谷定价（含高峰 / 谷时区分），历史费用按每条调用发生的时间戳自动使用旧价，**涨价前已算的费用不会重算**。
-- **精确计费**：按每次调用的实际模型名计价（`deepseek-v4-pro` / `deepseek-v4-flash`，支持版本后缀前缀匹配），缓存命中与缓存未命中分别计价。
+- **价格表**：内置 DeepSeek 官方页面当前的 2026-08-21 峰谷定价（含高峰 / 谷时区分），历史费用按每条调用发生的时间戳自动使用旧价，**涨价前已算的费用不会重算**。
+- **精确计费**：按每次调用的实际模型名计价（`deepseek-v4-pro`、`deepseek-v4-flash`、`deepseek-v4-flash-vision-exp`，支持版本后缀最长前缀匹配），缓存命中与缓存未命中分别计价。视觉模型的图片按 DeepSeek 返回的 `usage.prompt_tokens`（图片已按尺寸折算并与文本合并）计费，不重复估算。
 
 ## 架构
 
@@ -87,7 +87,7 @@ corepack pnpm run check:bundle
 
 ### 价格表（可选覆盖）
 
-价格表默认内置（见 `src/pricing.ts`），可通过 settings namespace `dsh-token-monitor` 的 `priceTable` 字段覆盖新价格（旧价与高峰时段切换内置）。高峰时段默认北京时间 `9:00–12:00`、`14:00–18:00`。
+价格表默认内置（见 `src/pricing.ts`），可通过 settings namespace `dsh-token-monitor` 的 `priceTable` 字段覆盖新价格（旧价与高峰时段切换内置）。高峰时段默认北京时间 `9:00–12:00`、`14:00–18:00`。官方依据：[模型与价格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing/)、[图像理解 Token 用量](https://api-docs.deepseek.com/zh-cn/guides/vision#token-usage)。
 
 ## HTTP 端点
 

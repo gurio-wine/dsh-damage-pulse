@@ -11,6 +11,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { readFile } from 'node:fs/promises'
 import z from '@deepseek-ai/schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 // Type-only：触发 ctx.sessionProjections 的 Context 声明合并。
@@ -31,6 +32,64 @@ export const name = 'dsh-token-monitor'
 export const inject = ['sessions', 'credentials']
 
 const SETTINGS_NS = settingsNamespace('dsh-token-monitor')
+
+const WHALE_ASSET_ROUTE = '/assets/dsh-token-monitor/whale-girl'
+const WHALE_ASSET_PATHS = new Set([
+  ...['acting-01', 'acting-02', 'acting-03', 'acting-04', 'acting-05', 'acting-06', 'acting-07', 'acting-08',
+    'blink-half-close', 'blink-soft', 'blink-reopen', 'idle-01', 'idle-02', 'idle-03', 'idle-04', 'idle-05', 'idle-06', 'idle-07', 'idle-08']
+    .map((name) => `idle-v4-r2/${name}.png`),
+  ...['weak-half', 'weak-close', 'weak-reopen', 'normal-half', 'normal-close', 'normal-reopen',
+    'critical-half', 'critical-close', 'critical-reopen']
+    .map((name) => `feedback-expression-v4-r4-model/frames/${name}.png`),
+  ...['notice', 'brace', 'peak', 'overflow', 'comfort', 'recover']
+    .map((name) => `feedback-expression-v4-r5-critical-model/frames/critical-${name}.png`),
+  ...['revive-death-start', 'revive-wake', 'revive-lift', 'revive-relief', 'revive-hop', 'revive-settle', 'revive-reopen']
+    .map((name) => `revive-recharge-v1/frames/${name}.png`),
+  'death-stranded-v6-trim.png',
+])
+
+export function registerWhaleAssetRoute(ctx: Context): void {
+  ctx.webServer.register({
+    kind: 'prefix',
+    path: WHALE_ASSET_ROUTE,
+    handler: async (req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD', 'Cache-Control': 'no-store' })
+        res.end()
+        return
+      }
+      let pathname: string
+      try {
+        pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://localhost').pathname)
+      } catch {
+        res.writeHead(400, { 'Cache-Control': 'no-store' })
+        res.end()
+        return
+      }
+      const relativePath = pathname.startsWith(`${WHALE_ASSET_ROUTE}/`)
+        ? pathname.slice(WHALE_ASSET_ROUTE.length + 1)
+        : ''
+      if (!WHALE_ASSET_PATHS.has(relativePath)) {
+        res.writeHead(404, { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
+        res.end()
+        return
+      }
+      try {
+        const body = await readFile(new URL(`../assets/dsh-token-monitor/whale-girl/${relativePath}`, import.meta.url))
+        res.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Content-Length': body.byteLength,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff',
+        })
+        res.end(req.method === 'HEAD' ? undefined : body)
+      } catch {
+        res.writeHead(404, { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
+        res.end()
+      }
+    },
+  })
+}
 
 /** 用户可编辑设置：价格表可覆盖（宽松 any，默认 PRICE_TABLE）。 */
 const settingsSchema = z.object({
@@ -92,6 +151,8 @@ export function apply(ctx: Context) {
 
   // 条件注册余额/用量明细 HTTP 端点：仅 web 装配有 webServer 服务。
   ctx.inject(['webServer'], (webCtx) => {
+    registerWhaleAssetRoute(webCtx)
+    console.log('[dsh-damage-pulse] whale asset route registered')
     registerBalanceRoute(webCtx, balance)
     console.log('[dsh-damage-pulse] balance route registered')
 

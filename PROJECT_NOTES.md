@@ -1,5 +1,18 @@
 # PROJECT_NOTES
 
+## 2026-08-22 Issue #3：DSH 0.1.1-rc.2 投影兼容性
+
+- 根因：DSH 0.1.1-rc.2 将 `ProjectionDefinition` 从顶层 `schema + view` 改为 `stateSchema + wire { viewSchema, view }`；旧定义仍能提供余额与 charge-events，但 `SessionStatsBar` 无法取得 `tokenCost`。
+- 修复：拆分 tokenCost 持久化 state/view schema，补充 `SessionProjectionStateMap` 类型声明，最低兼容版本更新为 0.1.1-rc.2，新增真实 `SessionProjectionRegistry` register/restore 回归测试。
+- 发布：版本升至 `0.2.1`，提交 `9a955fc` 已推送 `master`，Issue #3 已回帖并关闭。13/13 tests、冻结安装、构建、标准 bundle 与打包检查通过。
+- 依赖：四个投影相关 rc.2 包及工作区发布年龄豁免写入 `package.json`/`pnpm-workspace.yaml`；其他本地鲸鱼娘与预览 WIP 已从 stash 恢复，未进入公开提交。
+
+## 2026-08-21 DeepSeek Vision 计价更新已推送
+
+- 发布仓库 `https://github.com/wssfk12138/dsh-damage-pulse` 已将远端 `master` 与本地 Vision 计价更新合并并推送，远端提交为 `5ed62584ea3285a5cca9929759ee1b5a58508070`。
+- 新增 `deepseek-v4-flash-vision-exp` 价格、最长前缀模型匹配，以及按 API 返回的 `usage.prompt_tokens`（图片 Token 已包含在内）计费，避免图片重复估算。
+- 10 项计价测试、`pnpm build`、`pnpm check:bundle` 与 `pnpm pack --dry-run` 均通过。推送前通过 stash 保留了本地鲸鱼娘/预览未提交改动，未纳入公开提交。
+
 ## 2026-08-19 README 章节目录
 
 - 在项目简介与演示图后新增两级目录，覆盖全部一级章节，以及安装和配置下的具体操作章节。
@@ -87,6 +100,13 @@ corepack pnpm --dir packages/client/ui-workspace exec tsdown
 - 三分量动画：GitHub 发布副本与本地完整 Harness 均已实装；余额按整次调用总费用只扣一次，分量只驱动动画，字段缺失或分量和不匹配时回退旧单动画。
 - 公开品牌：`dsh-damage-pulse`。
 
+## 2026-08-22 鲸鱼娘动画 v0.3.0
+
+- 已把 18765 全真预览的当前完整动画同步到本地公测版：连续 FIFO 扣费、同身份痛苦表情/明显闭眼线、头顶前景扣费、8px 贴卡、待机、耗尽和仅在权威余额 `<=0 → >0` 时触发的复苏。核心 `BalanceWidget.tsx` / `WhaleGirlStage.tsx` 与 DSH 实装开发版哈希一致。
+- 正式包只加入 42 张运行态 PNG，`package.json` 包含 `assets/**/*`。Host 资源路由采用精确白名单，只允许 GET/HEAD；非法编码返回 400，非白名单/目录穿越返回 404，其他方法返回 405，并设置 `image/png`、`nosniff` 与 immutable cache。
+- `pnpm build`、`check:bundle`、18/18 tests、`pnpm audit --prod` 与 `pnpm pack --dry-run` 全部通过，42 张 PNG 均进入包。
+- 以上运行代码与精简素材作为 v0.3.0 正式发布；旧 docs、素材处理脚本和用户未跟踪研究文件继续保留在本地，不进入发布提交。
+
 ## 已知问题与解决方案
 
 - GitHub `dsh-plugin` Topic 可进入公共生态聚合源，但 DSH 内置 Plugin Market 使用 `awesome-dsh-plugin` 的审核清单；如需进入内置市场，仍需向该清单提交收录 PR。
@@ -94,6 +114,21 @@ corepack pnpm --dir packages/client/ui-workspace exec tsdown
 - Windows 上 GUI / Web 测试进程曾以退出码 `3221226505` 异常退出；命名类改动优先执行文本扫描、配置解析和 Client bundle 快速验证。
 - 旧兼容标识不可直接全量替换；如未来要重命名包名、API 或存储路径，必须提供旧名别名与数据迁移。
 - 插件独立 `tsc` 会因发布副本缺少完整 workspace 边界而报既有 `TS6307`/vendor 错误；本次以完整 Harness 中的 Client TypeScript、bundle、事件运行时冒烟和两份源码哈希一致性作为核心验收。Harness 全量 GUI 测试仍受既有 `FiberState` 与 jsdom `Range.getBoundingClientRect` 运行时错误影响。
+
+## 2026-08-22 README 实机功能拆解图 R2
+
+- 用已打码 DSH 实机截图、峰谷余额框全真截图和正式运行鲸鱼娘帧作为六张参考图，一次调用 OpenCodex `sota` 的 `gpt-image-2` 生成完整功能拆解图；所有中文、版式、标注和装饰均由模型直出，没有本地二次绘制。
+- 成品位于 `release-assets/github-readme/20260822-feature-breakdown-r2-machine-shot/dsh-damage-pulse-feature-breakdown-sota.png`（1672×941）；展示侧边栏/本次会话费用、峰谷余额、Token 扣费、待机和扣血表情，未加入未要求功能。
+- 本轮仅制作发布素材，未改插件源码、未 commit、未 push；旧版素材全部保留。
+
+## 2026-08-22 README 徽章、海报与鲸鱼娘介绍（v0.3.0）
+
+- README 开头新增峰谷鲸鱼娘功能拆解海报，删除旧目录（TOC）；Linux DO 社区认可、FastAI 模型赞助商与赞赏作者三枚 Shields SVG 徽章同排展示。
+- Linux DO 徽章复用社区帖子 `1777230` 提供的 base64 SVG 技术路线；FastAI 徽章用同一路线内嵌 FastAI 官网 favicon，并绑定 `https://github.com/wssfk12138/fastaitoken-beginner-guide`。Linux DO 与 FastAI 外链均在新标签页打开并带 `noopener noreferrer`。
+- 底部“支持作者”改为带显式 `support-author` 锚点的“赞赏作者”，保留原微信赞赏码；社区章节说明 FastAI 为模型赞助商，并明确插件功能不依赖该服务。
+- 新增鲸鱼娘介绍与两张已实装原画：`idle-v4-r2/acting-01.png` 啃手指待机、R5 `critical-peak.png` 严重扣费。README 专用副本和新海报均位于 `docs/assets/`。
+- `http://127.0.0.1:18766/` GitHub 风格本地预览验证全部图片、徽章等高同排、模型赞助商链接、赞赏锚点、页面溢出与控制台错误通过。
+- README 展示动画已从旧 `960×540 / 72 帧` GIF 切换到紧凑双余额框 R2 `docs/assets/dsh-token-monitor-dual-showcase-r2-compact.gif`（960×420、271 帧、2.63 MB）；旧 GIF 保留。18766 实际加载与控制台门禁通过。
 - 2026-08-17 三分量实装验收：完整 Harness Client bundle 通过；独立预览混合调用和连续 8 次扣费均通过，连续测试分量累计 `0.0148 + 0.0580 + 0.0260 = 0.0988`，余额 `38.6700 -> 38.5712`。全量 `test:gui` 为 184 个文件通过、88 个文件失败，失败集中于仓库既有共享测试状态（含 `ACTIVE` 未定义）及无关模块，不作为本插件回归结论。
 - 2026-08-17 共同轨道调整：移除三分量水平偏移，命中、未命中、输出全部锚定余额数字的 `right: 0; bottom: 0`；最终采用 1000ms/90px 普通与输出轨迹、1250ms/132px 未命中轨迹，并以首条立即、后续每 200ms 的 FIFO 冷却窗错峰发射。混合调用余额仍按三者之和立即只扣一次；完整 Harness Client bundle 与独立预览动态验收通过。
 - 本项目未新增第三方依赖；完整 DSH 宿主锁文件的生产审计当前仍有 25 项既有 advisory（12 high / 12 moderate / 1 low），扫描路径不包含 `ui-token-monitor` 或 `dsh-token-monitor`，应由宿主仓库单独升级处置。

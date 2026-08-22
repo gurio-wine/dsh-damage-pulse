@@ -3,7 +3,7 @@
  *
  * 数据源两个：
  * - 扣费：每秒增量拉取 /api/token-monitor/charge-events（Host collector 每次模型调用算出的精确 cost），
- *   合并该秒内扣费 → 余额本地精确扣减 + 红色「扣血」飘字动画 + 数字红色闪烁 + 下沉回弹微动。
+ *   按 seq 逐事件排队 → 每条独立飘字 + 余额逐条扣减 + 可打断的连续回弹 + 鲸鱼娘持续受击。
  * - 余额：每 60 秒拉取 /api/token-monitor/balance，校准显示余额；检测到余额变多（充值）→
  *   绿色「加费」飘字动画 + 数字绿色闪烁。
  *
@@ -12,9 +12,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BalanceInfo } from './types.ts'
+import { WhaleGirlStage, type WhalePose as AnimatedWhalePose } from './WhaleGirlStage.tsx'
 
-type BalanceWidgetProps = PropsRuntime<'shell.overlay'>
-
+type BalanceWidgetProps = PropsRuntime<'shell.overlay'> & {
+  /** 仅供全真发布展示页使用；不传时保持 DSH 实装行为。 */
+  previewOverride?: {
+    forcedPeak: boolean
+    fixedPosition: { left: number; top: number }
+    instanceId: string
+    syncEpoch: number
+  }
+}
 const CARD: React.CSSProperties = {
   position: 'fixed',
   padding: '6px 12px',
@@ -33,69 +41,46 @@ const CARD: React.CSSProperties = {
 
 const RED = '#ff3b30'
 const GREEN = '#30a46c'
+const WHALE_ASSET_ROOT = '/assets/dsh-token-monitor/whale-girl'
+type WhalePose = AnimatedWhalePose
+const DEATH_ASSET = `${WHALE_ASSET_ROOT}/death-stranded-v6-trim.png`
 
-/** 命中脉冲：飘字短促弹出上浮，余额数字同步下沉回弹。 */
+/** 附件参考节奏：扣费文字以最终字号快速显现，平稳上飘后渐隐。 */
 const KEYFRAMES = `
 @keyframes tkm-impact-float {
-  0%   { opacity: 0; transform: translateY(6px) scale(0.5); }
-  14%  { opacity: 1; transform: translateY(-6px) scale(1.25); }
-  30%  { opacity: 1; transform: translateY(-21px) scale(0.98); }
-  70%  { opacity: 1; transform: translateY(-63px) scale(1); }
-  100% { opacity: 0; transform: translateY(-90px) scale(0.9); }
-}
-@keyframes tkm-balance-hit {
-  0%   { transform: translateY(0) scale(1); }
-  26%  { transform: translateY(3px) scale(0.97); }
-  58%  { transform: translateY(-1px) scale(1.015); }
-  100% { transform: translateY(0) scale(1); }
-}
-@keyframes tkm-miss-float {
-  0%   { opacity: 0; filter: blur(1.5px); transform: translateY(9px) scale(0.36) rotate(-3deg); }
-  12%  { opacity: 1; filter: blur(0); transform: translateY(-12px) scale(1.52) rotate(1deg); }
-  23%  { transform: translate(-4px, -27px) scale(0.96) rotate(-1deg); }
-  34%  { transform: translate(3px, -39px) scale(1.08); }
-  64%  { opacity: 1; transform: translateY(-87px) scale(1); }
-  100% { opacity: 0; transform: translateY(-132px) scale(0.88); }
-}
-@keyframes tkm-balance-miss {
-  0%   { transform: translate(0, 0) scale(1); }
-  12%  { transform: translate(-3px, 4px) scale(0.94); text-shadow: 0 0 8px rgba(255,59,48,0.7); }
-  23%  { transform: translate(3px, 1px) scale(1.04); }
-  34%  { transform: translate(-2px, -1px) scale(0.99); }
-  48%  { transform: translate(1px, 0) scale(1.015); }
-  100% { transform: translate(0, 0) scale(1); text-shadow: none; }
+  0%   { opacity: 0; transform: translate3d(0, 5px, 0); }
+  8%   { opacity: 1; transform: translate3d(0, 0, 0); }
+  64%  { opacity: 1; transform: translate3d(0, -32px, 0); }
+  82%  { opacity: .76; transform: translate3d(0, -43px, 0); }
+  100% { opacity: 0; transform: translate3d(0, -56px, 0); }
 }
 @keyframes tkm-impact-float-reduced {
-  0%   { opacity: 0; transform: translateY(6px); }
-  35%  { opacity: 1; transform: translateY(-6px); }
-  100% { opacity: 0; transform: translateY(-30px); }
+  0%   { opacity: 0; transform: translate3d(0, 6px, 0); }
+  35%  { opacity: 1; transform: translate3d(0, -6px, 0); }
+  100% { opacity: 0; transform: translate3d(0, -30px, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
   .tkm-impact-float {
     animation: tkm-impact-float-reduced 180ms ease-out forwards !important;
   }
-  .tkm-miss-float {
-    animation: tkm-impact-float-reduced 180ms ease-out forwards !important;
-  }
-  .tkm-balance-hit,
-  .tkm-balance-miss {
-    animation: none !important;
-  }
 }
 `
 
-/** 飘字锚定余额数字，不参与卡片布局。 */
+/** 单条扣费文字；定位由鲸鱼娘头顶的独立反馈层负责。 */
 const FLOAT: React.CSSProperties = {
   position: 'absolute',
-  right: 0,
+  left: '50%',
   bottom: 0,
+  fontFamily: 'Inter, "Segoe UI", "Microsoft YaHei", sans-serif',
   fontSize: 18,
   fontWeight: 700,
+  lineHeight: 1,
   fontVariantNumeric: 'tabular-nums',
   pointerEvents: 'none',
   zIndex: 1001,
-  animation: 'tkm-impact-float 1000ms cubic-bezier(.2,.86,.25,1) forwards',
-  transformOrigin: '50% 70%',
+  animation: 'tkm-impact-float 1250ms cubic-bezier(.2,.72,.3,1) forwards',
+  transformOrigin: '50% 100%',
+  translate: '-50% 0',
   whiteSpace: 'nowrap',
   willChange: 'transform, opacity',
   textShadow: '0 1px 3px rgba(0,0,0,0.5)',
@@ -103,6 +88,7 @@ const FLOAT: React.CSSProperties = {
 
 /** 悬浮窗位置持久化 key。 */
 const POS_KEY = 'dsh-token-monitor-balance-pos'
+const WHALE_VISIBLE_KEY = 'dsh-token-monitor-show-whale-girl'
 
 /** 从 localStorage 恢复上次位置；缺失或非法则用右下角默认值。 */
 function loadPos(): { left: number; top: number } {
@@ -126,6 +112,18 @@ function savePos(pos: { left: number; top: number }): void {
     localStorage.setItem(POS_KEY, JSON.stringify(pos))
   } catch {
     // 忽略写入失败（隐私模式等）。
+  }
+}
+
+/** 恢复鲸鱼娘显示偏好；首次使用默认显示。 */
+function loadWhaleVisible(): boolean {
+  try {
+    const raw = localStorage.getItem(WHALE_VISIBLE_KEY)
+    if (raw === null) return true
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'boolean' ? parsed : true
+  } catch {
+    return true
   }
 }
 
@@ -161,6 +159,8 @@ function isPeakNow(): boolean {
 
 interface FloatAnim {
   id: number
+  eventId: string
+  seq?: number
   text: string
   color: 'red' | 'green'
   damageKind: DamageKind
@@ -170,20 +170,40 @@ interface FloatAnim {
 type DamageKind = 'normal' | 'miss' | 'output'
 
 interface PendingFloat {
+  eventId: string
+  seq?: number
   text: string
   color: 'red' | 'green'
   kind: DamageKind
   label?: FloatAnim['label']
+  debit?: number
+  suppressWhaleReaction?: boolean
+}
+
+interface RawChargeEvent {
+  id?: string
+  seq: number
+  cost: number
+  timestamp: number
+  kind?: 'hit' | 'output' | 'miss'
+  damageKind?: 'normal' | 'miss'
+  breakdown?: {
+    cacheHit?: { tokens?: number; cost?: number }
+    cacheMiss?: { tokens?: number; cost?: number }
+    output?: { tokens?: number; cost?: number }
+  }
 }
 
 const CHARGE_POLL_MS = 1_000
 const BALANCE_POLL_MS = 60_000
-const FLOAT_MS = 1_000
-const MISS_FLOAT_MS = 1_250
-const FLOAT_EMIT_INTERVAL_MS = 200
+const FLOAT_MS = 1_250
+const FLOAT_EMIT_INTERVAL_MS = 450
 const FLASH_MS = 620
+const WHALE_POSE_MS = 1_250
+const MAX_ACTIVE_FLOATS = 64
+const DRAG_THRESHOLD_PX = 4
 
-export function BalanceWidget(_props: BalanceWidgetProps) {
+export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
   // undefined = 加载中（不渲染）；null = 端点返回空（未查询到余额）。
   const [balanceInfo, setBalanceInfo] = useState<BalanceInfo | null | undefined>(undefined)
   // 本地维护的显示余额（null = 尚未从余额接口初始化基线）。
@@ -191,15 +211,17 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
   const [error, setError] = useState(false)
   // 余额数字闪烁：'red' 扣费 / 'green' 加费 / null 正常。
   const [flash, setFlash] = useState<'red' | 'green' | null>(null)
-  // 下沉回弹微动触发器：每次扣费/加费递增，重新挂载数字使 dip 动画重播。
-  const [dipKey, setDipKey] = useState(0)
-  const [damageKind, setDamageKind] = useState<DamageKind>('normal')
   const [anims, setAnims] = useState<FloatAnim[]>([])
+  const [whalePose, setWhalePose] = useState<WhalePose>('idle')
+  const [whaleImpactPulse, setWhaleImpactPulse] = useState(0)
+  const [reviving, setReviving] = useState(false)
+  const [showWhaleGirl, setShowWhaleGirl] = useState(loadWhaleVisible)
+  const [contextMenu, setContextMenu] = useState<{ left: number; top: number } | null>(null)
   // 悬浮窗位置（left/top），初始从 localStorage 恢复或默认右下角。
-  const [pos, setPos] = useState<{ left: number; top: number }>(loadPos)
+  const [pos, setPos] = useState<{ left: number; top: number }>(() => previewOverride?.fixedPosition ?? loadPos())
   const [dragging, setDragging] = useState(false)
   // 当前峰谷状态：true 高峰 / false 闲时。
-  const [isPeak, setIsPeak] = useState(isPeakNow)
+  const [isPeak, setIsPeak] = useState(() => previewOverride?.forcedPeak ?? isPeakNow())
 
   const chargeSeq = useRef(0)
   // 扣费游标是否已建立基线：首次拉取只取当前 seq（余额接口值已含历史扣费），跳过历史 events。
@@ -208,34 +230,145 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const animTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
   const animQueue = useRef<PendingFloat[]>([])
+  // 权威余额已包含刚发生的扣费；尚未发射的金额要临时加回，避免轮询校准后再次扣除。
+  const queuedDebit = useRef(0)
   const queueTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const whalePoseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const lastCriticalAt = useRef(0)
+  const activeWhaleSeverity = useRef(0)
+  const lastBalanceSnapshot = useRef<number | null>(null)
+  const revivingRef = useRef(false)
+  const showWhaleGirlRef = useRef(showWhaleGirl)
+  const balanceValueRef = useRef<HTMLSpanElement>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
   // 拖拽起点：按下时的鼠标位置 + 卡片位置。
-  const dragStart = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  const dragStart = useRef<{ x: number; y: number; left: number; top: number; pointerId: number; moved: boolean } | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
+
+  /** 右键打开余额显示设置菜单，并限制菜单不超出视口。 */
+  const onContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault()
+    dragStart.current = null
+    setDragging(false)
+    const menuWidth = 176
+    const menuHeight = 72
+    setContextMenu({
+      left: clamp(event.clientX, 4, Math.max(4, window.innerWidth - menuWidth - 4)),
+      top: clamp(event.clientY, 4, Math.max(4, window.innerHeight - menuHeight - 4)),
+    })
+  }, [])
+
+  /** 支持 Context Menu 键和 Shift+F10 打开设置。 */
+  const onKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      setContextMenu(null)
+      return
+    }
+    if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+      event.preventDefault()
+      const rect = event.currentTarget.getBoundingClientRect()
+      setContextMenu({
+        left: clamp(rect.left, 4, Math.max(4, window.innerWidth - 180)),
+        top: clamp(rect.bottom + 4, 4, Math.max(4, window.innerHeight - 76)),
+      })
+    }
+  }, [])
+
+  const toggleWhaleGirl = useCallback(() => {
+    setShowWhaleGirl((visible) => {
+      const next = !visible
+      try {
+        localStorage.setItem(WHALE_VISIBLE_KEY, JSON.stringify(next))
+      } catch {
+        // 隐私模式等场景下无法持久化时，仍保留当前会话设置。
+      }
+      return next
+    })
+    setContextMenu(null)
+  }, [])
+
+  useEffect(() => {
+    if (contextMenu === null) return
+    const close = (event: PointerEvent) => {
+      if (contextMenuRef.current?.contains(event.target as Node)) return
+      setContextMenu(null)
+    }
+    const onBlur = () => setContextMenu(null)
+    document.addEventListener('pointerdown', close)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [contextMenu])
+
+  useEffect(() => {
+    showWhaleGirlRef.current = showWhaleGirl
+    if (showWhaleGirl) {
+      setWhalePose('idle')
+      return
+    }
+    if (whalePoseTimer.current !== undefined) clearTimeout(whalePoseTimer.current)
+    whalePoseTimer.current = undefined
+    setWhalePose('idle')
+    revivingRef.current = false
+    setReviving(false)
+  }, [showWhaleGirl])
+
+  /** 卡片完整约束在视口内；窗口缩放后也会修正并保存位置。 */
+  const constrainPos = useCallback((next: { left: number; top: number }) => {
+    const rect = cardRef.current?.getBoundingClientRect()
+    const width = rect?.width ?? 180
+    const height = rect?.height ?? 34
+    return {
+      left: clamp(next.left, 0, Math.max(0, window.innerWidth - width)),
+      top: clamp(next.top, 0, Math.max(0, window.innerHeight - height)),
+    }
+  }, [])
+
+  useEffect(() => {
+    const onResize = () => setPos((current) => {
+      const next = constrainPos(current)
+      savePos(next)
+      return next
+    })
+    window.addEventListener('resize', onResize)
+    onResize()
+    return () => window.removeEventListener('resize', onResize)
+  }, [constrainPos])
 
   /** 拖拽开始：记录起点，捕获指针。 */
   const onPointerDown = useCallback((event: React.PointerEvent) => {
+    if (previewOverride !== undefined) return
     if (event.button !== 0) return
-    dragStart.current = { x: event.clientX, y: event.clientY, left: pos.left, top: pos.top }
-    setDragging(true)
+    if ((event.target as HTMLElement).closest('[role=menu]') !== null) return
+    dragStart.current = { x: event.clientX, y: event.clientY, left: pos.left, top: pos.top, pointerId: event.pointerId, moved: false }
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
-  }, [pos])
+  }, [pos, previewOverride])
 
   /** 拖拽移动：按位移更新位置，并限制在视口内。 */
   const onPointerMove = useCallback((event: React.PointerEvent) => {
     const start = dragStart.current
     if (start === null) return
-    setPos({
-      left: clamp(start.left + event.clientX - start.x, 0, Math.max(0, window.innerWidth - 64)),
-      top: clamp(start.top + event.clientY - start.y, 0, Math.max(0, window.innerHeight - 32)),
-    })
-  }, [])
+    const dx = event.clientX - start.x
+    const dy = event.clientY - start.y
+    if (!start.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return
+    if (!start.moved) {
+      start.moved = true
+      setDragging(true)
+      setContextMenu(null)
+    }
+    setPos(constrainPos({ left: start.left + dx, top: start.top + dy }))
+  }, [constrainPos])
 
   /** 拖拽结束：持久化位置。 */
   const onPointerUp = useCallback((event: React.PointerEvent) => {
     if (dragStart.current === null) return
     dragStart.current = null
     setDragging(false)
-    ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
+    if ((event.currentTarget as HTMLElement).hasPointerCapture(event.pointerId)) {
+      ;(event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId)
+    }
     // 持久化最终位置（用 pos 的最新值）。
     setPos((current) => {
       savePos(current)
@@ -243,25 +376,77 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
     })
   }, [])
 
+  /** 余额节点保留同一 DOM；连续扣费从当前视觉状态接续，不再靠 key 强制重播。 */
+  const pulseBalance = useCallback((kind: DamageKind) => {
+    const node = balanceValueRef.current
+    if (node === null || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    for (const animation of node.getAnimations()) {
+      try { animation.commitStyles() } catch { /* commitStyles 并非所有浏览器都支持。 */ }
+      animation.cancel()
+    }
+    const strong = kind === 'miss'
+    node.animate([
+      { transform: getComputedStyle(node).transform === 'none' ? 'translate3d(0,0,0) scale(1)' : getComputedStyle(node).transform },
+      { transform: strong ? 'translate3d(-2px,3px,0) scale(.955)' : 'translate3d(0,2px,0) scale(.978)', offset: .22 },
+      { transform: strong ? 'translate3d(2px,-1px,0) scale(1.025)' : 'translate3d(0,-1px,0) scale(1.012)', offset: .55 },
+      { transform: 'translate3d(0,0,0) scale(1)' },
+    ], { duration: strong ? 620 : 440, easing: 'cubic-bezier(.2,.86,.25,1)', fill: 'forwards' })
+  }, [])
+
   /** 将一条反馈真正发射到共同轨道。 */
   const emit = useCallback((pending: PendingFloat) => {
-    const { text, color, kind, label } = pending
+    const { eventId, seq, text, color, kind, label, debit, suppressWhaleReaction = false } = pending
     const id = ++animId.current
-    const next = { text, color, damageKind: kind, label }
-    setAnims((list) => [...list, { id, ...next }].slice(-3))
+    const next = {
+      eventId,
+      seq,
+      text,
+      color,
+      damageKind: kind,
+      ...(label === undefined ? {} : { label }),
+    }
+    setAnims((list) => [...list, { id, ...next }].slice(-MAX_ACTIVE_FLOATS))
+    if (debit !== undefined && debit > 0) {
+      queuedDebit.current = Math.max(0, queuedDebit.current - debit)
+      setDisplay((previous) => previous === null ? null : Math.max(0, previous - debit))
+    }
+    if (color === 'red' && revivingRef.current) {
+      revivingRef.current = false
+      setReviving(false)
+    }
+    if (showWhaleGirlRef.current && !suppressWhaleReaction) {
+      const now = Date.now()
+      const severity = color === 'green' ? 0 : kind === 'output' ? 1 : kind === 'normal' ? 2 : 3
+      activeWhaleSeverity.current = Math.max(activeWhaleSeverity.current, severity)
+      const pose: WhalePose = color === 'green'
+        ? 'heal-happy'
+        : activeWhaleSeverity.current === 1
+          ? 'weak-pain'
+          : activeWhaleSeverity.current === 2
+            ? 'normal-pain'
+            : (now - lastCriticalAt.current < 900 ? 'critical-combo' : 'critical-pain')
+      if (kind === 'miss') lastCriticalAt.current = now
+      setWhalePose(pose)
+      setWhaleImpactPulse((pulse) => pulse + 1)
+      if (whalePoseTimer.current !== undefined) clearTimeout(whalePoseTimer.current)
+      whalePoseTimer.current = setTimeout(() => {
+        whalePoseTimer.current = undefined
+        activeWhaleSeverity.current = 0
+        setWhalePose('idle')
+      }, WHALE_POSE_MS)
+    }
     setFlash(color)
-    setDamageKind(kind)
-    setDipKey((key) => key + 1)
+    pulseBalance(kind)
     if (flashTimer.current !== undefined) clearTimeout(flashTimer.current)
     flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS)
     const timer = setTimeout(() => {
       animTimers.current.delete(timer)
       setAnims((list) => list.filter((anim) => anim.id !== id))
-    }, kind === 'miss' ? MISS_FLOAT_MS : FLOAT_MS)
+    }, FLOAT_MS)
     animTimers.current.add(timer)
-  }, [])
+  }, [pulseBalance])
 
-  /** FIFO 发射器：首条立即出现，后续每 200ms 错峰发射。 */
+  /** FIFO 发射器：首条立即出现，后续按指定 GIF 的约 450ms 节奏发射。 */
   const drainQueue = useCallback(function drain() {
     const next = animQueue.current.shift()
     if (next === undefined) {
@@ -275,12 +460,17 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
 
   /** 将反馈加入共同轨道队列，连续触发时保持可辨识的部分覆盖。 */
   const trigger = useCallback((
+    eventId: string,
     text: string,
     color: 'red' | 'green',
     kind: DamageKind = 'normal',
     label?: FloatAnim['label'],
+    seq?: number,
+    debit?: number,
+    suppressWhaleReaction = false,
   ) => {
-    animQueue.current.push({ text, color, kind, label })
+    if (debit !== undefined && debit > 0) queuedDebit.current += debit
+    animQueue.current.push({ eventId, seq, text, color, kind, label, debit, suppressWhaleReaction })
     if (queueTimer.current === undefined && animQueue.current.length === 1) drainQueue()
   }, [drainQueue])
 
@@ -290,16 +480,48 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
     animTimers.current.forEach((timer) => clearTimeout(timer))
     animTimers.current.clear()
     animQueue.current = []
+    queuedDebit.current = 0
+    if (whalePoseTimer.current !== undefined) clearTimeout(whalePoseTimer.current)
   }, [])
+
+  const cancelDrag = useCallback(() => {
+    if (dragStart.current === null) return
+    dragStart.current = null
+    setDragging(false)
+    setPos((current) => {
+      const next = constrainPos(current)
+      savePos(next)
+      return next
+    })
+  }, [constrainPos])
+
+  // 某些宿主或高刷新率指针设备可能在卡片之外结束拖动；窗口级兜底避免遗留 grabbing 状态。
+  useEffect(() => {
+    if (!dragging) return
+    const finish = () => cancelDrag()
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+    window.addEventListener('blur', finish)
+    return () => {
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      window.removeEventListener('blur', finish)
+    }
+  }, [cancelDrag, dragging])
 
   // 峰谷状态刷新：每 30 秒重算一次（跨整点边界最多延迟 30 秒）。
   useEffect(() => {
+    if (previewOverride !== undefined) {
+      setIsPeak(previewOverride.forcedPeak)
+      setPos(previewOverride.fixedPosition)
+      return
+    }
     const update = () => setIsPeak(isPeakNow())
     const timer = setInterval(update, 30_000)
     return () => clearInterval(timer)
-  }, [])
+  }, [previewOverride])
 
-  // 扣费轮询：每秒增量拉取，合并该秒内扣费，本地精确扣减 + 红色动画。
+  // 扣费轮询：每秒增量拉取；严格按 seq 逐事件入队，不按类型聚合或重排。
   useEffect(() => {
     let cancelled = false
     const poll = async () => {
@@ -308,17 +530,7 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
         if (!res.ok) return
         const data = (await res.json()) as {
           seq: number
-          events: Array<{
-            seq: number
-            cost: number
-            timestamp: number
-            damageKind?: 'normal' | 'miss'
-            breakdown?: {
-              cacheHit?: { tokens?: number; cost?: number }
-              cacheMiss?: { tokens?: number; cost?: number }
-              output?: { tokens?: number; cost?: number }
-            }
-          }>
+          events: RawChargeEvent[]
         }
         if (!chargeSeeded.current) {
           // 首次：只建立游标基线（跳过余额接口已含的历史扣费，避免重复扣减）。
@@ -326,52 +538,44 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
           chargeSeq.current = data.seq
           return
         }
-        chargeSeq.current = data.seq
-        const events = data.events ?? []
+        const events = [...(data.events ?? [])]
+          .filter((event) => Number.isFinite(event.seq) && event.seq > chargeSeq.current)
+          .sort((left, right) => left.seq - right.seq)
         if (events.length === 0) return
-        const total = events.reduce((sum, event) => sum + event.cost, 0)
-        const components = { hit: 0, miss: 0, output: 0 }
-        let hasBreakdown = true
-        for (const event of events) {
-          const b = event.breakdown
-          if (b === undefined) {
-            hasBreakdown = false
-            break
-          }
-          const hit = Number(b.cacheHit?.cost ?? 0)
-          const miss = Number(b.cacheMiss?.cost ?? 0)
-          const output = Number(b.output?.cost ?? 0)
-          if (![hit, miss, output, event.cost].every(Number.isFinite) || hit < 0 || miss < 0 || output < 0) {
-            hasBreakdown = false
-            break
-          }
-          const sum = hit + miss + output
-          if (Math.abs(sum - event.cost) > Math.max(1e-9, Math.abs(event.cost) * 1e-6)) {
-            hasBreakdown = false
-            break
-          }
-          components.hit += hit
-          components.miss += miss
-          components.output += output
-        }
-        if (!hasBreakdown) {
-          components.hit = 0
-          components.miss = 0
-          components.output = 0
-        }
-        const mergedDamageKind: 'normal' | 'miss' = hasBreakdown
-          ? (components.miss > 0 ? 'miss' : 'normal')
-          : (events.some(event => event.damageKind === 'miss') ? 'miss' : 'normal')
         if (cancelled) return
-        // 余额本地扣减（仅在已有基线后生效）。
-        setDisplay((prev) => (prev === null ? null : prev - total))
-        if (hasBreakdown) {
-          // 同一批次余额只扣一次；分量仅驱动动画。未命中最后触发以保持最强余额回弹。
-          if (components.hit > 0) trigger(`-${fmtCost(components.hit)}¥`, 'red', 'normal', '命中')
-          if (components.output > 0) trigger(`-${fmtCost(components.output)}¥`, 'red', 'output', '输出')
-          if (components.miss > 0) trigger(`-${fmtCost(components.miss)}¥`, 'red', 'miss', '未命中')
-        } else {
-          trigger(`-${fmtCost(total)}¥`, 'red', mergedDamageKind)
+        for (const event of events) {
+          const eventId = event.id ?? `charge-${event.seq}`
+          const topKind = event.kind
+          const parts: Array<{ suffix: string; cost: number; kind: DamageKind; label: FloatAnim['label'] }> = []
+          if (topKind !== undefined) {
+            parts.push({
+              suffix: topKind,
+              cost: event.cost,
+              kind: topKind === 'miss' ? 'miss' : topKind === 'output' ? 'output' : 'normal',
+              label: topKind === 'miss' ? '未命中' : topKind === 'output' ? '输出' : '命中',
+            })
+          } else {
+            const hit = Number(event.breakdown?.cacheHit?.cost ?? 0)
+            const output = Number(event.breakdown?.output?.cost ?? 0)
+            const miss = Number(event.breakdown?.cacheMiss?.cost ?? 0)
+            if ([hit, output, miss].every((cost) => Number.isFinite(cost) && cost >= 0) && hit + output + miss > 0) {
+              // 旧格式事件没有顶层 kind；只在单个事件内部按计费明细的稳定顺序展开。
+              if (hit > 0) parts.push({ suffix: 'hit', cost: hit, kind: 'normal', label: '命中' })
+              if (output > 0) parts.push({ suffix: 'output', cost: output, kind: 'output', label: '输出' })
+              if (miss > 0) parts.push({ suffix: 'miss', cost: miss, kind: 'miss', label: '未命中' })
+            } else {
+              const fallbackKind: DamageKind = event.damageKind === 'miss' ? 'miss' : 'normal'
+              parts.push({
+                suffix: 'legacy', cost: event.cost, kind: fallbackKind,
+                label: fallbackKind === 'miss' ? '未命中' : '命中',
+              })
+            }
+          }
+          for (const part of parts) {
+            if (!Number.isFinite(part.cost) || part.cost <= 0) continue
+            trigger(`${eventId}-${part.suffix}`, `-${fmtCost(part.cost)}¥`, 'red', part.kind, part.label, event.seq, part.cost)
+          }
+          chargeSeq.current = Math.max(chargeSeq.current, event.seq)
         }
       } catch {
         // 扣费轮询失败静默（不影响余额显示）。
@@ -400,11 +604,37 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
         setBalanceInfo(data)
         setError(false)
         if (data !== null) {
-          setDisplay((prev) => {
-            const grew = prev !== null && data.totalBalance > prev + 1e-9
-            if (grew) trigger(`+${fmtCost(data.totalBalance - prev!)}¥`, 'green')
-            return data.totalBalance
-          })
+          const previousSnapshot = lastBalanceSnapshot.current
+          const grew = previousSnapshot !== null && data.totalBalance > previousSnapshot + 1e-9
+          const crossedFromDepleted = previousSnapshot !== null && previousSnapshot <= 0 && data.totalBalance > 0
+          if (grew) {
+            trigger(
+              `heal-${Date.now()}`,
+              `+${fmtCost(data.totalBalance - previousSnapshot)}¥`,
+              'green',
+              'normal',
+              undefined,
+              undefined,
+              undefined,
+              crossedFromDepleted,
+            )
+          }
+          lastBalanceSnapshot.current = data.totalBalance
+          setDisplay(data.totalBalance + queuedDebit.current)
+          if (crossedFromDepleted && showWhaleGirlRef.current) {
+            if (whalePoseTimer.current !== undefined) clearTimeout(whalePoseTimer.current)
+            whalePoseTimer.current = undefined
+            activeWhaleSeverity.current = 0
+            revivingRef.current = true
+            setReviving(true)
+            setWhalePose('revive-recharge')
+          } else if (data.totalBalance <= 0) {
+            if (whalePoseTimer.current !== undefined) clearTimeout(whalePoseTimer.current)
+            whalePoseTimer.current = undefined
+            revivingRef.current = false
+            setReviving(false)
+            setWhalePose('idle')
+          }
         }
       } catch {
         if (!cancelled) setError(true)
@@ -430,17 +660,182 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
 
   const amountColor = flash === 'red' ? RED : flash === 'green' ? GREEN : 'var(--dsh-color-accent, #4c8dff)'
   const shown = display ?? balanceInfo.totalBalance
-
+  const depleted = shown <= 0
+  const onWhalePoseComplete = (completedPose: WhalePose) => {
+    if (completedPose !== 'revive-recharge' || !revivingRef.current) return
+    revivingRef.current = false
+    setReviving(false)
+    setWhalePose('idle')
+  }
   return (
     <div
-      style={{ ...CARD, left: pos.left, top: pos.top, cursor: dragging ? 'grabbing' : 'grab' }}
+      ref={cardRef}
+      style={{ ...CARD, left: pos.left, top: pos.top, cursor: previewOverride === undefined ? (dragging ? 'grabbing' : 'grab') : 'default' }}
       data-token-monitor-balance=""
+      data-showcase-instance={previewOverride?.instanceId}
+      data-showcase-peak={isPeak ? 'peak' : 'valley'}
       title="DeepSeek 账户余额（扣费实时、余额 60s 校准；可拖动）"
+      tabIndex={0}
+      onContextMenu={onContextMenu}
+      onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={cancelDrag}
+      onLostPointerCapture={cancelDrag}
     >
       <style>{KEYFRAMES}</style>
+      {contextMenu !== null && (
+        <div
+          ref={contextMenuRef}
+          role="menu"
+          aria-label="余额显示设置"
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation()
+              setContextMenu(null)
+            }
+          }}
+          style={{
+            position: 'fixed',
+            left: contextMenu.left,
+            top: contextMenu.top,
+            minWidth: 176,
+            padding: 6,
+            borderRadius: 6,
+            background: 'var(--dsh-color-surface-overlay, rgba(28, 28, 28, 0.96))',
+            color: 'var(--dsh-color-text, #e8e8e8)',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            zIndex: 1100,
+          }}
+        >
+          <div style={{ padding: '2px 8px 5px', fontSize: 11, opacity: 0.65 }}>余额显示设置</div>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={showWhaleGirl}
+            onClick={toggleWhaleGirl}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 8px',
+              border: 0, borderRadius: 4, background: 'transparent', color: 'inherit',
+              textAlign: 'left', cursor: 'pointer', font: 'inherit',
+            }}
+            onMouseEnter={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,0.10)' }}
+            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent' }}
+          >
+            <span aria-hidden="true" style={{ width: 14, textAlign: 'center', color: '#79b8ff' }}>{showWhaleGirl ? '✓' : ''}</span>
+            <span>显示鲸鱼娘</span>
+          </button>
+        </div>
+      )}
+      {showWhaleGirl && depleted && !reviving && (
+      <div
+        aria-hidden="true"
+        data-token-monitor-whale-depleted=""
+        style={{
+          position: 'absolute',
+          left: '10%',
+          bottom: 'calc(100% - 8px)',
+          width: '80%',
+          aspectRatio: '1351 / 691',
+          zIndex: 2,
+          pointerEvents: 'none',
+          overflow: 'visible',
+        }}
+      >
+        <img
+          src={DEATH_ASSET}
+          alt=""
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            objectPosition: 'bottom center',
+            display: 'block',
+          }}
+        />
+      </div>
+      )}
+      {showWhaleGirl && (reviving || !depleted) && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            left: '10%',
+            bottom: 'calc(100% - 8px)',
+            width: '80%',
+            aspectRatio: '1 / 1',
+            zIndex: 2,
+            pointerEvents: 'none',
+            overflow: 'visible',
+          }}
+          data-token-monitor-whale-layer=""
+          data-token-monitor-whale-pose={whalePose}
+        >
+          <WhaleGirlStage
+            pose={whalePose}
+            impactPulse={whaleImpactPulse}
+            onPoseComplete={onWhalePoseComplete}
+            syncEpoch={previewOverride?.syncEpoch}
+          />
+        </div>
+      )}
+      {anims.length > 0 && !depleted && (
+        <div
+          aria-hidden="true"
+          data-token-monitor-damage-layer="head-front"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: showWhaleGirl ? 'calc(100% + 42px)' : 'calc(100% + 8px)',
+            width: 0,
+            height: 0,
+            zIndex: 12,
+            pointerEvents: 'none',
+            overflow: 'visible',
+          }}
+        >
+          {anims.map(anim => (
+            <span
+              key={anim.id}
+              className="tkm-impact-float"
+              data-charge-event-id={anim.eventId}
+              data-charge-seq={anim.seq}
+              data-charge-kind={anim.damageKind}
+              style={{
+                ...FLOAT,
+                color: anim.color,
+                display: 'flex',
+                alignItems: 'baseline',
+                justifyContent: 'center',
+                gap: anim.damageKind === 'miss' ? 5 : 4,
+                fontSize: anim.damageKind === 'miss' ? 23 : FLOAT.fontSize,
+                fontWeight: anim.damageKind === 'miss' ? 800 : FLOAT.fontWeight,
+                animation: FLOAT.animation,
+                textShadow: anim.damageKind === 'miss'
+                  ? '0 1px 3px rgba(0,0,0,0.76), 0 0 7px rgba(255,59,48,0.42)'
+                  : FLOAT.textShadow,
+              }}
+            >
+              {anim.label !== undefined && (
+                <span style={{
+                  color: RED,
+                  fontSize: 11,
+                  fontWeight: 800,
+                }}>
+                  {anim.label}
+                </span>
+              )}
+              <span>{anim.text}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ position: 'relative', zIndex: 4 }}>
       余额{' '}
       <span
         style={{
@@ -448,58 +843,21 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
           display: 'inline-block',
         }}
       >
-        {anims.map(anim => (
-          <span
-            key={anim.id}
-            className={anim.damageKind === 'miss' ? 'tkm-miss-float' : 'tkm-impact-float'}
-            style={{
-              ...FLOAT,
-              color: anim.color,
-              display: anim.damageKind === 'miss' ? 'flex' : undefined,
-              alignItems: anim.damageKind === 'miss' ? 'baseline' : undefined,
-              gap: anim.damageKind === 'miss' ? 5 : undefined,
-              fontSize: anim.damageKind === 'miss' ? 23 : anim.damageKind === 'output' ? 13 : FLOAT.fontSize,
-              fontWeight: anim.damageKind === 'miss' ? 800 : anim.damageKind === 'output' ? 600 : FLOAT.fontWeight,
-              opacity: anim.damageKind === 'output' ? 0.72 : undefined,
-              animation: anim.damageKind === 'miss'
-                ? 'tkm-miss-float 1250ms cubic-bezier(.15,.88,.22,1) forwards'
-                : FLOAT.animation,
-              textShadow: anim.damageKind === 'miss'
-                ? '0 1px 3px rgba(0,0,0,0.72), 0 0 10px rgba(255,59,48,0.55)'
-                : FLOAT.textShadow,
-            }}
-          >
-            {anim.label !== undefined && (
-              <span style={{
-                color: RED,
-                fontSize: anim.damageKind === 'output' ? 10 : 11,
-                fontWeight: anim.damageKind === 'output' ? 700 : 800,
-                marginRight: anim.damageKind === 'miss' ? 0 : 4,
-              }}>
-                {anim.label}
-              </span>
-            )}
-            <span>{anim.text}</span>
-          </span>
-        ))}
         <span
-          key={dipKey}
-          className={damageKind === 'miss' ? 'tkm-balance-miss' : 'tkm-balance-hit'}
+          ref={balanceValueRef}
           style={{
             fontWeight: 700,
             fontVariantNumeric: 'tabular-nums',
             display: 'inline-block',
             color: amountColor,
             transition: 'color 0.25s ease',
-            animation: damageKind === 'miss'
-              ? 'tkm-balance-miss 620ms cubic-bezier(.2,.86,.25,1)'
-              : 'tkm-balance-hit 440ms cubic-bezier(.2,.9,.25,1)',
+            transform: 'translate3d(0,0,0) scale(1)',
+            willChange: 'transform',
           }}
         >
           {balanceInfo.currency} {shown.toFixed(2)}
         </span>
       </span>
-      {balanceInfo.grantedBalance > 0 ? ` · 赠送 ${balanceInfo.grantedBalance.toFixed(2)}` : ''}
       <span
         style={{
           fontWeight: 700,
@@ -513,6 +871,7 @@ export function BalanceWidget(_props: BalanceWidgetProps) {
       >
         {isPeak ? '峰' : '谷'}
       </span>
+      </div>
     </div>
   )
 }

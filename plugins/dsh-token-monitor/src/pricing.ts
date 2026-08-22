@@ -1,6 +1,6 @@
 /**
  * DeepSeek 峰谷定价价格表与计费引擎。
- * 价格表版本：2026-08-21（按官方页面当前内容核对）。
+ * 价格表版本：2026-08-23（周末全天按低谷时段价格）。
  * 来源：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
  * 单位：元 / 百万 tokens。
  */
@@ -23,10 +23,10 @@ export interface PricingTable {
   version: string
 }
 
-/** 2026-08-21 核对的当前官方峰谷价格（单位：元 / 百万 tokens）。 */
+/** 2026-08-23 生效规则：工作日峰谷分段，周末全天低谷价（单位：元 / 百万 tokens）。 */
 export const PRICE_TABLE: PricingTable = {
-  version: '2026-08-21',
-  // 高峰时段：北京时间 9:00-12:00、14:00-18:00（半开区间）。
+  version: '2026-08-23',
+  // 工作日高峰：北京时间 9:00-12:00、14:00-18:00；周末全天按低谷价。
   peakHours: [[9, 12], [14, 18]],
   models: {
     // Vision Exp 的图片会先折算为 prompt tokens，并随文本输入一起进入 usage；
@@ -93,8 +93,11 @@ export interface CostBreakdown {
   peak: boolean
 }
 
-/** 未命中价格表时的安全默认价（取 flash 高峰价，偏高不偏少）。 */
-const FALLBACK: ModelPrice = { input: 3.0, cacheHit: 0.10, output: 9.0 }
+/** 未命中价格表时按 Flash 对应时段回退，周末也不会误用峰价。 */
+const FALLBACK = {
+  offPeak: { input: 1.5, cacheHit: 0.05, output: 4.5 },
+  peak: { input: 3.0, cacheHit: 0.10, output: 9.0 },
+} satisfies { offPeak: ModelPrice; peak: ModelPrice }
 
 /** 取时间戳对应的北京时间小时（0-23）；解析失败返回 -1。 */
 export function beijingHour(ts: number): number {
@@ -107,8 +110,20 @@ export function beijingHour(ts: number): number {
   return hour === undefined ? -1 : Number(hour)
 }
 
-/** 判断时间戳是否落在高峰时段（半开区间 [start, end)）。 */
+/** 取时间戳对应的北京时间星期（0=周日，6=周六）；解析失败返回 -1。 */
+export function beijingWeekday(ts: number): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Shanghai',
+    weekday: 'short',
+  }).formatToParts(new Date(ts))
+  const weekday = parts.find((p) => p.type === 'weekday')?.value
+  return weekday === undefined ? -1 : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday)
+}
+
+/** 工作日按原峰谷时段判断；周六、周日始终返回低谷。 */
 export function isPeakHour(ts: number, peakHours: Array<[number, number]>): boolean {
+  const weekday = beijingWeekday(ts)
+  if (weekday === 0 || weekday === 6) return false
   const hour = beijingHour(ts)
   return peakHours.some(([start, end]) => hour >= start && hour < end)
 }
@@ -146,7 +161,7 @@ export function priceUsage(
   const active = selectPriceTable(ts, table)
   const resolved = resolveModelPrice(model, active)
   const peak = isPeakHour(ts, active.peakHours)
-  const rate = peak ? (resolved?.peak ?? FALLBACK) : (resolved?.offPeak ?? FALLBACK)
+  const rate = peak ? (resolved?.peak ?? FALLBACK.peak) : (resolved?.offPeak ?? FALLBACK.offPeak)
   const costInput = (inputTokens / 1e6) * rate.input
   const costCacheRead = (cacheReadTokens / 1e6) * rate.cacheHit
   const costCacheWrite = (cacheWriteTokens / 1e6) * rate.input

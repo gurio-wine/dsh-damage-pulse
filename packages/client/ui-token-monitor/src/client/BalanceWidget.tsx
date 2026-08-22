@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BalanceInfo } from './types.ts'
 import { WhaleGirlStage, type WhalePose as AnimatedWhalePose } from './WhaleGirlStage.tsx'
+import { isPeakPeriod } from './peakPeriod.ts'
 
 type BalanceWidgetProps = PropsRuntime<'shell.overlay'> & {
   /** 仅供全真发布展示页使用；不传时保持 DSH 实装行为。 */
@@ -137,24 +138,9 @@ function fmtCost(cost: number): string {
   return cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)
 }
 
-/** 高峰时段（北京时间，半开区间 [start, end)）。 */
-const PEAK_HOURS: Array<[number, number]> = [[9, 12], [14, 18]]
-
-/** 取时间戳对应的北京时间小时（0-23）；解析失败返回 -1。 */
-function beijingHour(ts: number): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Shanghai',
-    hour: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date(ts))
-  const hour = parts.find((p) => p.type === 'hour')?.value
-  return hour === undefined ? -1 : Number(hour)
-}
-
 /** 当前时刻是否落在高峰时段。 */
 function isPeakNow(): boolean {
-  const hour = beijingHour(Date.now())
-  return PEAK_HOURS.some(([start, end]) => hour >= start && hour < end)
+  return isPeakPeriod(Date.now())
 }
 
 interface FloatAnim {

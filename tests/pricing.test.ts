@@ -3,12 +3,16 @@ import test from 'node:test'
 import {
   LEGACY_PRICE_TABLE,
   PRICE_TABLE,
+  beijingWeekday,
+  isPeakHour,
   priceUsage,
   resolveModelPrice,
 } from '../plugins/dsh-token-monitor/src/pricing.ts'
+import { isPeakPeriod } from '../packages/client/ui-token-monitor/src/client/peakPeriod.ts'
 
 const OFF_PEAK = Date.UTC(2026, 7, 21, 0, 0, 0)
 const PEAK = Date.UTC(2026, 7, 21, 2, 0, 0)
+const beijing = (day: number, hour: number, minute = 0) => Date.UTC(2026, 7, day, hour - 8, minute)
 
 test('resolves the official vision model and versioned ids', () => {
   assert.deepEqual(resolveModelPrice('deepseek-v4-flash-vision-exp', PRICE_TABLE), PRICE_TABLE.models['deepseek-v4-flash-vision-exp'])
@@ -38,4 +42,33 @@ test('keeps the legacy table available for pre-price-change records', () => {
   assert.equal(old.costCacheRead, 500 / 1e6 * 0.02)
   assert.equal(old.costOutput, 2_000 / 1e6 * 2.0)
   assert.equal(LEGACY_PRICE_TABLE.models['deepseek-v4-flash-vision-exp']?.offPeak.input, 1.0)
+})
+
+test('keeps weekday peak windows and charges the whole weekend at valley rates', () => {
+  const cases: Array<[number, boolean]> = [
+    [beijing(21, 8, 59), false],
+    [beijing(21, 9), true],
+    [beijing(21, 12), false],
+    [beijing(21, 14), true],
+    [beijing(21, 18), false],
+    [beijing(22, 9), false],
+    [beijing(22, 14), false],
+    [beijing(23, 9), false],
+    [beijing(24, 9), true],
+  ]
+  for (const [timestamp, expected] of cases) {
+    assert.equal(isPeakHour(timestamp, PRICE_TABLE.peakHours), expected)
+    assert.equal(isPeakPeriod(timestamp), expected)
+  }
+
+  const saturday = beijing(22, 10)
+  const known = priceUsage(1_000_000, 0, 0, 0, 'deepseek-v4-flash', saturday)
+  const fallback = priceUsage(1_000_000, 0, 0, 0, 'future-deepseek-model', saturday)
+  assert.equal(known.costInput, 1.5)
+  assert.equal(fallback.costInput, 1.5)
+})
+
+test('uses the Asia/Shanghai day boundary instead of the host local timezone', () => {
+  assert.equal(beijingWeekday(Date.UTC(2026, 7, 21, 15, 59)), 5)
+  assert.equal(beijingWeekday(Date.UTC(2026, 7, 21, 16, 0)), 6)
 })

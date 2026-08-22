@@ -15,6 +15,7 @@ test('uses the DSH 0.1.1 stateSchema and wire projection contract', () => {
   assert.equal(legacyShape.schema, undefined)
   assert.equal(legacyShape.view, undefined)
   assert.ok(definition.wire)
+  assert.equal(definition.stateVersion, 3)
 
   const initialState = definition.stateSchema.parse(definition.init())
   const initialView = definition.wire.viewSchema.parse(definition.wire.view(initialState))

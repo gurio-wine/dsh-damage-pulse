@@ -94,7 +94,7 @@ export function createTokenCostProjectionDefinition(
         lastActivity: state.lastActivity,
       }),
     },
-    // v1 累计了错误的「8-17 新价格」金额；v2 按时间戳切换旧/新价格，强制缓存失效重 fold。
-    stateVersion: 2,
+    // v3 加入周末全天谷价，强制历史周末调用按新规则重 fold。
+    stateVersion: 3,
   }
 }

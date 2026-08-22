@@ -1,5 +1,11 @@
 # PROJECT_NOTES
 
+## 2026-08-22 GitHub Topic Social Preview 与正式模型素材归档
+
+- 已确认 `dsh-plugin` Topic 卡片简介上方图片来自仓库 Social Preview（`repository-images.githubusercontent.com`），不是 README 首图；本仓库此前 `open_graph_image_url` 为空。
+- 将已验收峰谷鲸鱼娘海报等比适配为 1280×640 Social Preview，完整保留原内容，仅使用蓝白背景补边；仓库追踪副本为 `docs/assets/dsh-damage-pulse-social-preview.png`。
+- 将 GitHub v0.3.0 正式使用的 42 张运行态 PNG、3 张 README 模型图和 Social Preview 归档到桌面版本化素材包，并附 `MANIFEST.md` 与 SHA-256 清单；未覆盖旧 GIF，未混入赞赏码或未实装研究素材。
+
 ## 2026-08-22 Issue #3：DSH 0.1.1-rc.2 投影兼容性
 
 - 根因：DSH 0.1.1-rc.2 将 `ProjectionDefinition` 从顶层 `schema + view` 改为 `stateSchema + wire { viewSchema, view }`；旧定义仍能提供余额与 charge-events，但 `SessionStatsBar` 无法取得 `tokenCost`。

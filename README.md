@@ -43,7 +43,7 @@ DSH（DeepSeek Harness）扣血式 Token 余额监控插件：每次产生 token
 
 ## 安装
 
-本仓库从 `0.2.0` 起是标准 DSH Host + Client 组合包，已提交预编译产物。无需复制源码、修改 DSH `tsconfig`、手动传入 `--patch` 或重建 Client bundle。
+本仓库从 `0.2.0` 起是标准 DSH Host + Client 组合包，已提交预编译产物。当前版本要求 DSH `0.1.1-rc.2` 或更高兼容版本。无需复制源码、修改 DSH `tsconfig`、手动传入 `--patch` 或重建 Client bundle。
 
 ```powershell
 dsh plugin --profile web add github:wssfk12138/dsh-damage-pulse

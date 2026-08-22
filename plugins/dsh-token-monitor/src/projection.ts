@@ -8,20 +8,21 @@
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { priceUsage, type PricingTable } from './pricing.ts'
-import type { TokenCostProjection } from './types.ts'
+import type { TokenCostProjection, TokenCostState } from './types.ts'
 
-/** 内部 fold 状态（plain JSON）。 */
-interface TokenCostState {
-  calls: number
-  inputTokens: number
-  cacheReadTokens: number
-  cacheWriteTokens: number
-  outputTokens: number
-  cost: number
-  lastActivity: number
-}
+/** Persisted fold state (the DSH 0.1.1 wire contract validates this shape). */
+const stateSchema = z.object({
+  calls: z.number().int().nonnegative(),
+  inputTokens: z.number().int().nonnegative(),
+  cacheReadTokens: z.number().int().nonnegative(),
+  cacheWriteTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cost: z.number().nonnegative(),
+  lastActivity: z.number().nonnegative(),
+}).strict()
 
-const schema = z.object({
+/** Client-facing aggregate; derived fields stay out of persisted fold state. */
+const viewSchema = z.object({
   calls: z.number().int().nonnegative(),
   inputTokens: z.number().int().nonnegative(),
   cacheReadTokens: z.number().int().nonnegative(),
@@ -38,7 +39,7 @@ export function createTokenCostProjectionDefinition(
 ): ProjectionDefinition<'tokenCost', TokenCostState> {
   return {
     key: 'tokenCost',
-    schema,
+    stateSchema,
     init: () => ({
       calls: 0,
       inputTokens: 0,
@@ -80,16 +81,19 @@ export function createTokenCostProjectionDefinition(
         lastActivity: event.time,
       }
     },
-    view: (state): TokenCostProjection => ({
-      calls: state.calls,
-      inputTokens: state.inputTokens,
-      cacheReadTokens: state.cacheReadTokens,
-      cacheWriteTokens: state.cacheWriteTokens,
-      outputTokens: state.outputTokens,
-      totalTokens: state.inputTokens + state.cacheReadTokens + state.cacheWriteTokens + state.outputTokens,
-      cost: state.cost,
-      lastActivity: state.lastActivity,
-    }),
+    wire: {
+      viewSchema,
+      view: (state): TokenCostProjection => ({
+        calls: state.calls,
+        inputTokens: state.inputTokens,
+        cacheReadTokens: state.cacheReadTokens,
+        cacheWriteTokens: state.cacheWriteTokens,
+        outputTokens: state.outputTokens,
+        totalTokens: state.inputTokens + state.cacheReadTokens + state.cacheWriteTokens + state.outputTokens,
+        cost: state.cost,
+        lastActivity: state.lastActivity,
+      }),
+    },
     // v1 累计了错误的「8-17 新价格」金额；v2 按时间戳切换旧/新价格，强制缓存失效重 fold。
     stateVersion: 2,
   }

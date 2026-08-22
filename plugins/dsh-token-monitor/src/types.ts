@@ -91,9 +91,25 @@ export interface TokenCostProjection {
   lastActivity: number
 }
 
+/** Internal fold state for the tokenCost projection (persisted by DSH). */
+export interface TokenCostState {
+  calls: number
+  inputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  outputTokens: number
+  cost: number
+  lastActivity: number
+}
+
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     /** 会话累计 token 用量与金额。 */
     tokenCost: TokenCostProjection
+  }
+
+  interface SessionProjectionStateMap {
+    /** Persisted fold state for the session token-cost projection. */
+    tokenCost: TokenCostState
   }
 }

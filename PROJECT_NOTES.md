@@ -129,6 +129,7 @@ corepack pnpm --dir packages/client/ui-workspace exec tsdown
 - 新增鲸鱼娘介绍与两张已实装原画：`idle-v4-r2/acting-01.png` 啃手指待机、R5 `critical-peak.png` 严重扣费。README 专用副本和新海报均位于 `docs/assets/`。
 - `http://127.0.0.1:18766/` GitHub 风格本地预览验证全部图片、徽章等高同排、模型赞助商链接、赞赏锚点、页面溢出与控制台错误通过。
 - README 展示动画已从旧 `960×540 / 72 帧` GIF 切换到紧凑双余额框 R2 `docs/assets/dsh-token-monitor-dual-showcase-r2-compact.gif`（960×420、271 帧、2.63 MB）；旧 GIF 保留。18766 实际加载与控制台门禁通过。
+- v0.3.0 功能提交 `53a6160` 已推送到 GitHub `master`；`dsh-plugin` Topic 保留，仓库 description 已明确写入鲸鱼娘待机/扣费/复苏动画。远端 README、功能拆解海报与紧凑 GIF 均核验成功，媒体资源 HTTP 200。
 - 2026-08-17 三分量实装验收：完整 Harness Client bundle 通过；独立预览混合调用和连续 8 次扣费均通过，连续测试分量累计 `0.0148 + 0.0580 + 0.0260 = 0.0988`，余额 `38.6700 -> 38.5712`。全量 `test:gui` 为 184 个文件通过、88 个文件失败，失败集中于仓库既有共享测试状态（含 `ACTIVE` 未定义）及无关模块，不作为本插件回归结论。
 - 2026-08-17 共同轨道调整：移除三分量水平偏移，命中、未命中、输出全部锚定余额数字的 `right: 0; bottom: 0`；最终采用 1000ms/90px 普通与输出轨迹、1250ms/132px 未命中轨迹，并以首条立即、后续每 200ms 的 FIFO 冷却窗错峰发射。混合调用余额仍按三者之和立即只扣一次；完整 Harness Client bundle 与独立预览动态验收通过。
 - 本项目未新增第三方依赖；完整 DSH 宿主锁文件的生产审计当前仍有 25 项既有 advisory（12 high / 12 moderate / 1 low），扫描路径不包含 `ui-token-monitor` 或 `dsh-token-monitor`，应由宿主仓库单独升级处置。

@@ -12,7 +12,7 @@
 
 DSH（DeepSeek Harness）扣血式 Token 余额监控插件：每次产生 token 消耗，余额数字都会受击回弹，并飘出红色扣费数值；同时提供会话用量、精确金额和 DeepSeek 账户实时余额。
 
-![峰谷余额框与鲸鱼娘动画展示](docs/assets/dsh-token-monitor-dual-showcase-r2-compact.gif)
+![峰谷余额框与鲸鱼娘高清动画展示](docs/assets/dsh-token-monitor-dual-showcase-r3-hq-color.gif)
 
 ## 功能特性
 

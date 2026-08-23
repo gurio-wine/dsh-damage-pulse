@@ -25,7 +25,7 @@ import { attachCollector } from './collector.ts'
 import { attachBalance, registerBalanceRoute } from './balance.ts'
 import { chargesSince, currentChargeSeq } from './charge.ts'
 import { createTokenCostProjectionDefinition } from './projection.ts'
-import { PRICE_TABLE, type PricingTable } from './pricing.ts'
+import { PRICE_TABLE, resolvePricingEligibility, type PricingTable } from './pricing.ts'
 import { UsageStorage } from './storage.ts'
 
 export const name = 'dsh-token-monitor'
@@ -133,7 +133,9 @@ export function apply(ctx: Context) {
     }
   })
 
-  const storage = new UsageStorage()
+  const storage = new UsageStorage((record) =>
+    resolvePricingEligibility(record.provider, record.model, record.timestamp, priceTable) !== undefined
+  )
   attachCollector(ctx, storage, priceTable)
   const balance = attachBalance(ctx)
 

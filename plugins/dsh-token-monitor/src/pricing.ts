@@ -93,11 +93,16 @@ export interface CostBreakdown {
   peak: boolean
 }
 
-/** 未命中价格表时按 Flash 对应时段回退，周末也不会误用峰价。 */
-const FALLBACK = {
-  offPeak: { input: 1.5, cacheHit: 0.05, output: 4.5 },
-  peak: { input: 3.0, cacheHit: 0.10, output: 9.0 },
-} satisfies { offPeak: ModelPrice; peak: ModelPrice }
+/** DSH 内 DeepSeek 官方供应商的稳定 ID；只有该供应商具备计费资格。 */
+export const OFFICIAL_PROVIDER_ID = 'deepseek-official'
+
+/** provider + model 通过资格门禁后返回的价格表命中结果。 */
+export interface PricingEligibility {
+  provider: typeof OFFICIAL_PROVIDER_ID
+  model: string
+  matchedModel: string
+  price: { peak: ModelPrice; offPeak: ModelPrice }
+}
 
 /** 取时间戳对应的北京时间小时（0-23）；解析失败返回 -1。 */
 export function beijingHour(ts: number): number {
@@ -139,29 +144,50 @@ export function resolveModelPrice(
   const direct = table.models[model]
   if (direct !== undefined) return direct
   for (const [name, price] of Object.entries(table.models).sort(([a], [b]) => b.length - a.length)) {
-    if (model.startsWith(name)) return price
+    if (model.startsWith(`${name}-`)) return price
   }
   return undefined
 }
 
 /**
- * 按 (token 数, 模型, 时间戳) 计算一次调用的费用。
+ * 计费资格统一入口：必须同时来自 DeepSeek 官方供应商并明确命中价格表。
+ * 允许已登记模型的版本后缀按最长前缀匹配；未知模型不再按 Flash 猜价。
+ */
+export function resolvePricingEligibility(
+  provider: string,
+  model: string,
+  ts: number,
+  table: PricingTable = PRICE_TABLE,
+): PricingEligibility | undefined {
+  if (provider !== OFFICIAL_PROVIDER_ID || typeof model !== 'string') return undefined
+  const active = selectPriceTable(ts, table)
+  const entries = Object.entries(active.models).sort(([a], [b]) => b.length - a.length)
+  const matched = entries.find(([name]) => model === name || model.startsWith(`${name}-`))
+  if (matched === undefined) return undefined
+  return { provider: OFFICIAL_PROVIDER_ID, model, matchedModel: matched[0], price: matched[1] }
+}
+
+/**
+ * 按 (token 数, provider, 模型, 时间戳) 计算一次调用的费用。
  * 缓存命中（cacheReadTokens）按 cacheHit 价；缓存写入（cacheWriteTokens）并入缓存未命中价。
+ * 未通过 provider + model 资格门禁时返回 undefined，调用方不得记录或展示费用。
  */
 export function priceUsage(
   inputTokens: number,
   cacheReadTokens: number,
   cacheWriteTokens: number,
   outputTokens: number,
+  provider: string,
   model: string,
   ts: number,
   table: PricingTable = PRICE_TABLE,
-): CostBreakdown {
+): CostBreakdown | undefined {
   // 按时间戳选择生效价格表：8-17 前旧统一价，之后峰谷价（settings 可覆盖后者）。
   const active = selectPriceTable(ts, table)
-  const resolved = resolveModelPrice(model, active)
+  const eligibility = resolvePricingEligibility(provider, model, ts, table)
+  if (eligibility === undefined) return undefined
   const peak = isPeakHour(ts, active.peakHours)
-  const rate = peak ? (resolved?.peak ?? FALLBACK.peak) : (resolved?.offPeak ?? FALLBACK.offPeak)
+  const rate = peak ? eligibility.price.peak : eligibility.price.offPeak
   const costInput = (inputTokens / 1e6) * rate.input
   const costCacheRead = (cacheReadTokens / 1e6) * rate.cacheHit
   const costCacheWrite = (cacheWriteTokens / 1e6) * rate.input

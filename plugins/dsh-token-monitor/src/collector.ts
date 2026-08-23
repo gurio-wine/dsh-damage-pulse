@@ -21,12 +21,22 @@ function buildRecord(
   model: string,
   usage: TokenUsage,
   priceTable: PricingTable,
-): UsageRecord {
+): UsageRecord | undefined {
   const inputTokens = usage.inputTokens
   const cacheReadTokens = usage.cacheReadTokens ?? 0
   const cacheWriteTokens = usage.cacheWriteTokens ?? 0
   const outputTokens = usage.outputTokens
-  const breakdown = priceUsage(inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens, model, timestamp, priceTable)
+  const breakdown = priceUsage(
+    inputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    outputTokens,
+    provider,
+    model,
+    timestamp,
+    priceTable,
+  )
+  if (breakdown === undefined) return undefined
   return {
     sessionId,
     turn,
@@ -68,7 +78,8 @@ export function attachCollector(ctx: Context, storage: UsageStorage, priceTable:
       usage,
       priceTable,
     )
-    storage.add(record)
+    if (record === undefined) return
+    if (storage.add(record) === undefined) return
 
     // 缓存未命中输入或缓存写入均按未命中处理；纯缓存读取使用普通动画。
     const damageKind = record.inputTokens > 0 || record.cacheWriteTokens > 0 ? 'miss' : 'normal'

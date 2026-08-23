@@ -65,10 +65,12 @@ export function createTokenCostProjectionDefinition(
         cacheReadTokens,
         cacheWriteTokens,
         outputTokens,
+        source.provider,
         source.model,
         event.time,
         priceTable,
       )
+      if (breakdown === undefined) return state
 
       return {
         ...state,
@@ -94,7 +96,7 @@ export function createTokenCostProjectionDefinition(
         lastActivity: state.lastActivity,
       }),
     },
-    // v3 加入周末全天谷价，强制历史周末调用按新规则重 fold。
-    stateVersion: 3,
+    // v4 加入 provider + model 资格门禁，强制历史会话重新 fold 并排除不合格调用。
+    stateVersion: 4,
   }
 }

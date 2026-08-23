@@ -3,7 +3,7 @@ import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
-import { PRICE_TABLE, priceUsage } from '../plugins/dsh-token-monitor/src/pricing.ts'
+import { OFFICIAL_PROVIDER_ID, PRICE_TABLE, priceUsage } from '../plugins/dsh-token-monitor/src/pricing.ts'
 import { createTokenCostProjectionDefinition } from '../plugins/dsh-token-monitor/src/projection.ts'
 
 const EVENT_TIME = Date.UTC(2026, 7, 21, 0, 0, 0)
@@ -15,7 +15,7 @@ test('uses the DSH 0.1.1 stateSchema and wire projection contract', () => {
   assert.equal(legacyShape.schema, undefined)
   assert.equal(legacyShape.view, undefined)
   assert.ok(definition.wire)
-  assert.equal(definition.stateVersion, 3)
+  assert.equal(definition.stateVersion, 4)
 
   const initialState = definition.stateSchema.parse(definition.init())
   const initialView = definition.wire.viewSchema.parse(definition.wire.view(initialState))
@@ -50,7 +50,7 @@ test('folds model usage into a client-visible tokenCost value', () => {
         content: [],
         source: {
           kind: 'model',
-          provider: 'deepseek',
+          provider: OFFICIAL_PROVIDER_ID,
           model: 'deepseek-v4-flash',
         },
       },
@@ -65,7 +65,10 @@ test('folds model usage into a client-visible tokenCost value', () => {
 
   const nextState = definition.apply(definition.init(), event)
   const value = definition.wire.viewSchema.parse(definition.wire.view(nextState))
-  const expectedCost = priceUsage(1_000, 500, 100, 200, 'deepseek-v4-flash', EVENT_TIME, PRICE_TABLE).cost
+  const expectedBreakdown = priceUsage(
+    1_000, 500, 100, 200, OFFICIAL_PROVIDER_ID, 'deepseek-v4-flash', EVENT_TIME, PRICE_TABLE,
+  )
+  assert.ok(expectedBreakdown)
 
   assert.deepEqual(value, {
     calls: 1,
@@ -74,9 +77,34 @@ test('folds model usage into a client-visible tokenCost value', () => {
     cacheWriteTokens: 100,
     outputTokens: 200,
     totalTokens: 1_800,
-    cost: expectedCost,
+    cost: expectedBreakdown.cost,
     lastActivity: EVENT_TIME,
   })
+})
+
+test('excludes non-official providers and unknown models from the projection', () => {
+  const definition = createTokenCostProjectionDefinition(PRICE_TABLE)
+  const eventFor = (provider: string, model: string) => ({
+    type: 'assistant/message',
+    seq: 0,
+    time: EVENT_TIME,
+    sourceEventSeqs: [],
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        id: 'ineligible-message',
+        role: 'assistant',
+        content: [],
+        source: { kind: 'model', provider, model },
+      },
+      usage: { inputTokens: 1_000, outputTokens: 200 },
+    },
+  }) as unknown as SessionEvent
+
+  const initial = definition.init()
+  assert.deepEqual(definition.apply(initial, eventFor('openai-compatible', 'deepseek-v4-flash')), initial)
+  assert.deepEqual(definition.apply(initial, eventFor(OFFICIAL_PROVIDER_ID, 'future-deepseek-model')), initial)
 })
 
 test('serves tokenCost through the real DSH 0.1.1 projection registry', () => {

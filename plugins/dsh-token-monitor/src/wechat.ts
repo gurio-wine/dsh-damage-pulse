@@ -1,3 +1,4 @@
+import type { Context } from '@deepseek-ai/cordis'
 import { execFile } from 'node:child_process'
 import { existsSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,6 +13,17 @@ export interface WechatProvider {
   readonly capabilities: { send: boolean; status: boolean; login: boolean; reconnect: boolean; disconnect: boolean }
   send(message: string): Promise<{ ok: boolean; message: string; code?: string }>
   status(): Promise<{ connected: boolean; authenticated?: boolean; detail?: string }>
+}
+
+export interface TokenMonitorWechatService {
+  readonly apiVersion: '1'
+  getProvider(): WechatProvider
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    tokenMonitorWechat: TokenMonitorWechatService
+  }
 }
 
 function errorText(error: unknown): string {
@@ -54,12 +66,42 @@ export function adaptLegacyWechat(value: any): WechatProvider | undefined {
   }
 }
 
+function optionalService(ctx: any, name: string): unknown {
+  if (typeof ctx?.get === 'function') {
+    return ctx.get(name, false)
+  }
+  return ctx?.[name]
+}
+
 export function discoverWechat(ctx: any, bundled: WechatProvider): WechatProvider {
-  const candidates = [ctx?.wechatNotify, ctx?.wechatNotification, ctx?.services?.wechatNotify]
+  const services = optionalService(ctx, 'services') as { wechatNotify?: unknown } | undefined
+  const candidates = [
+    optionalService(ctx, 'wechatNotify'),
+    optionalService(ctx, 'wechatNotification'),
+    services?.wechatNotify,
+  ]
   for (const candidate of candidates) {
     if (candidate?.apiVersion && typeof candidate.send === 'function') return candidate as WechatProvider
     const legacy = adaptLegacyWechat(candidate)
     if (legacy) return legacy
   }
   return bundled
+}
+
+/** Register the compatibility capability through Cordis' managed service lifecycle. */
+export function provideTokenMonitorWechat(
+  ctx: Context,
+  bundled = createBundledWechatProvider(),
+): TokenMonitorWechatService {
+  const existing = ctx.get('tokenMonitorWechat', false) as TokenMonitorWechatService | undefined
+  if (existing?.apiVersion === '1' && typeof existing.getProvider === 'function') {
+    return existing
+  }
+
+  const service: TokenMonitorWechatService = {
+    apiVersion: '1',
+    getProvider: () => discoverWechat(ctx, bundled),
+  }
+  ctx.provide('tokenMonitorWechat', service)
+  return service
 }

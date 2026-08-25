@@ -112,7 +112,7 @@ corepack pnpm run check:bundle
 
 ## 微信通知兼容层
 
-0.4.0 起，插件内置一个不注册 Cordis 工具的轻量 ClawBot 适配器，并按以下优先级选择通知 provider：新版外部 wechat-notify 能力对象 → 旧版 send() / status() 接口 → 内置适配器 → 不可用。任一时刻只会选一个 provider；微信未登录、超时或发送失败不会阻塞余额监控、计费和鲸鱼娘动画。
+0.3.2 起，插件内置一个不注册 Cordis 工具的轻量 ClawBot 适配器，并按以下优先级选择通知 provider：新版外部 wechat-notify 能力对象 → 旧版 send() / status() 接口 → 内置适配器 → 不可用。任一时刻只会选一个 provider；微信未登录、超时或发送失败不会阻塞余额监控、计费和鲸鱼娘动画。
 
 如果用户已经安装独立 dsh-wechat-notify，本插件会复用它的发送能力；未安装时，只要设置 WECHAT_NOTIFY_CLAWBOT_INDEX，内置适配器即可开箱发送。兼容层不迁移或删除原插件凭据，也不会重复注册 wechat_notify、扫码工具或 bridge。旧版接口若只能发送，状态面板会明确标注“发送可用，登录管理由原插件负责”。
 

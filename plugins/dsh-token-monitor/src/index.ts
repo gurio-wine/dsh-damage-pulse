@@ -27,7 +27,7 @@ import { chargesSince, currentChargeSeq } from './charge.ts'
 import { createTokenCostProjectionDefinition } from './projection.ts'
 import { PRICE_TABLE, resolvePricingEligibility, type PricingTable } from './pricing.ts'
 import { UsageStorage } from './storage.ts'
-import { createBundledWechatProvider, discoverWechat } from './wechat.ts'
+import { provideTokenMonitorWechat } from './wechat.ts'
 
 export const name = 'dsh-token-monitor'
 export const inject = ['sessions', 'credentials']
@@ -122,10 +122,9 @@ async function migrateMissingTokenCost(ctx: Context): Promise<void> {
 export function apply(ctx: Context) {
   console.log('[dsh-damage-pulse] plugin loaded')
 
-  const bundledWechat = createBundledWechatProvider()
-  const resolveWechat = () => discoverWechat(ctx as any, bundledWechat)
-  // Capability surface for sibling UI/extensions. No tool or bridge is registered here.
-  ;(ctx as any).tokenMonitorWechat = { apiVersion: '1', getProvider: resolveWechat }
+  // Capability surface for sibling UI/extensions. Cordis owns its lifecycle.
+  const wechatService = provideTokenMonitorWechat(ctx)
+  const resolveWechat = () => wechatService.getProvider()
 
   // 价格表：settings 可覆盖，启动时读取一次（改后需重启生效）。
   // settings 在 web 装配里先于本插件就绪，故 inject 回调同步执行。

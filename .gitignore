@@ -26,3 +26,11 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# 本地私有文件：2026-08-27 清理后禁止重新进入公开仓库
+/PROJECT_NOTES.md
+/readme-preview.html
+/docs/readme-preview.html
+/docs/assets/dsh-damage-pulse-peak-valley-whale-poster.png
+/docs/assets/fastaitoken-channel-models.png
+/docs/assets/readme/dsh-damage-pulse-wechat-live.jpg

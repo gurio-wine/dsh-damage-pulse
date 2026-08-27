@@ -2,10 +2,12 @@
  * tokenCost projection：fold assistant/message.usage，累计每个会话的 token 用量与金额。
  * 经 session-projection 缝自动推送（registry 快照 / 变更流 / session/projection 帧），
  * Web Client 据此渲染「会话累计」统计条。
+ * 定义同时携带两代 DSH 宿主的字段：0.1.0-rc.6/rc.7/rc.8 读取 schema/view，
+ * 0.1.1-rc.1/rc.2 读取 stateSchema/wire；两侧 registry 都只消费自己认识的字段。
  * @module dsh-token-monitor/projection
  */
 
-import { z } from 'zod'
+import { z, type ZodType } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { priceUsage, type PricingTable } from './pricing.ts'
 import type { TokenCostProjection, TokenCostState } from './types.ts'
@@ -33,10 +35,36 @@ const viewSchema = z.object({
   lastActivity: z.number().nonnegative(),
 }).strict()
 
+type TokenCostProjectionDefinition = Omit<
+  ProjectionDefinition<'tokenCost', TokenCostState>,
+  'wire'
+> & {
+  wire: NonNullable<ProjectionDefinition<'tokenCost', TokenCostState>['wire']>
+  /**
+   * 旧 DSH 宿主字段（0.1.0-rc.6/rc.7/rc.8 的 schema/view 单表形态）。
+   * 旧 registry 只读取 schema.parse(view(state))；新 registry 只读取
+   * stateSchema/wire。两侧共用同一份约束（viewSchema）与实现（wireView），
+   * 保证任意宿主上产出的 wire 值一致。
+   */
+  schema: ZodType<TokenCostProjection>
+  view: (state: TokenCostState) => TokenCostProjection
+}
+
 /** 按给定价格表构造 tokenCost projection 单元。 */
 export function createTokenCostProjectionDefinition(
   priceTable: PricingTable,
-): ProjectionDefinition<'tokenCost', TokenCostState> {
+): TokenCostProjectionDefinition {
+  /** 共享的 state → wire 投影：旧宿主经 view 读取，新宿主经 wire.view 读取。 */
+  const wireView = (state: TokenCostState): TokenCostProjection => ({
+    calls: state.calls,
+    inputTokens: state.inputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: state.cacheWriteTokens,
+    outputTokens: state.outputTokens,
+    totalTokens: state.inputTokens + state.cacheReadTokens + state.cacheWriteTokens + state.outputTokens,
+    cost: state.cost,
+    lastActivity: state.lastActivity,
+  })
   return {
     key: 'tokenCost',
     stateSchema,
@@ -60,6 +88,7 @@ export function createTokenCostProjectionDefinition(
       const cacheReadTokens = usage.cacheReadTokens ?? 0
       const cacheWriteTokens = usage.cacheWriteTokens ?? 0
       const outputTokens = usage.outputTokens
+      if (![inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens].every(value => Number.isSafeInteger(value) && value >= 0)) return state
       const breakdown = priceUsage(
         inputTokens,
         cacheReadTokens,
@@ -85,17 +114,11 @@ export function createTokenCostProjectionDefinition(
     },
     wire: {
       viewSchema,
-      view: (state): TokenCostProjection => ({
-        calls: state.calls,
-        inputTokens: state.inputTokens,
-        cacheReadTokens: state.cacheReadTokens,
-        cacheWriteTokens: state.cacheWriteTokens,
-        outputTokens: state.outputTokens,
-        totalTokens: state.inputTokens + state.cacheReadTokens + state.cacheWriteTokens + state.outputTokens,
-        cost: state.cost,
-        lastActivity: state.lastActivity,
-      }),
+      view: wireView,
     },
+    // 旧 DSH 宿主字段：schema 校验 wire 值、view 输出 wire 值，与新宿主共用实现。
+    schema: viewSchema,
+    view: wireView,
     // v4 加入 provider + model 资格门禁，强制历史会话重新 fold 并排除不合格调用。
     stateVersion: 4,
   }

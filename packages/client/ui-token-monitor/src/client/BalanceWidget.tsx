@@ -11,11 +11,23 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { type TokenMonitorSettingsSnapshot, type TokenMonitorSettingsPatchRequest } from '../../../../util/token-monitor-contract/src/index.ts'
+import type { RouteEligibilityLoader } from './routeEligibility.ts'
+import { createTokenMonitorSettingsApi } from './settingsApi.ts'
+import { TokenMonitorSettingsApiError } from './settingsApi.ts'
+import { TokenMonitorSettingsPanel } from './TokenMonitorSettingsPanel.tsx'
+import { createWechatConnectionApi } from './wechatConnectionApi.ts'
+import { createNotificationEventsApi, type TokenMonitorNotificationEvent } from './notificationApi.ts'
+import { applyNotificationPollResult, createNotificationQueueState, dequeueNotificationItem, type NotificationVisualItem } from './notificationQueue.ts'
 import type { BalanceInfo } from './types.ts'
+import { useRouteEligibility } from './useRouteEligibility.ts'
 import { WhaleGirlStage, type WhalePose as AnimatedWhalePose } from './WhaleGirlStage.tsx'
 import { isPeakPeriod } from './peakPeriod.ts'
+import { applyDebitToDisplay } from './balanceMath.ts'
 
 type BalanceWidgetProps = PropsRuntime<'shell.overlay'> & {
+  loadRouteEligibility?: RouteEligibilityLoader
+  /** A settings owner may control this for immediate updates; otherwise the persisted Host setting is loaded. */
   /** 仅供全真发布展示页使用；不传时保持 DSH 实装行为。 */
   previewOverride?: {
     forcedPeak: boolean
@@ -24,6 +36,11 @@ type BalanceWidgetProps = PropsRuntime<'shell.overlay'> & {
     syncEpoch: number
   }
 }
+
+const settingsApi = createTokenMonitorSettingsApi()
+const notificationEventsApi = createNotificationEventsApi()
+const wechatConnectionApi = createWechatConnectionApi()
+
 const CARD: React.CSSProperties = {
   position: 'fixed',
   padding: '6px 12px',
@@ -138,6 +155,19 @@ function fmtCost(cost: number): string {
   return cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)
 }
 
+function notificationText(item: NotificationVisualItem): string {
+  const event: Exclude<TokenMonitorNotificationEvent, { kind: 'charge' }> = item.event
+  if (event.kind === 'budget-threshold') {
+    return `今日花费 ¥${fmtCost(event.payload.currentSpend)}，已达到预算阈值`
+  }
+  if (event.kind === 'peak-enter') return '进入峰时段，当前价格较高'
+  if (event.kind === 'peak-exit') return '进入谷时段，当前价格较低'
+  if (event.kind === 'cache-hit-anomaly') {
+    return `缓存命中率偏低：最近 ${String(event.payload.sampleCount)} 次约 ${(event.payload.observedRate * 100).toFixed(1)}%，低于 ${(event.payload.threshold * 100).toFixed(0)}% 阈值`
+  }
+  return 'Token 消耗提醒'
+}
+
 /** 当前时刻是否落在高峰时段。 */
 function isPeakNow(): boolean {
   return isPeakPeriod(Date.now())
@@ -189,7 +219,9 @@ const WHALE_POSE_MS = 1_250
 const MAX_ACTIVE_FLOATS = 64
 const DRAG_THRESHOLD_PX = 4
 
-export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
+export function BalanceWidget({ previewOverride, loadRouteEligibility, useSessions }: BalanceWidgetProps) {
+  const routeEligible = useRouteEligibility(useSessions, loadRouteEligibility, previewOverride !== undefined)
+  const shouldPoll = routeEligible === true || previewOverride !== undefined
   // undefined = 加载中（不渲染）；null = 端点返回空（未查询到余额）。
   const [balanceInfo, setBalanceInfo] = useState<BalanceInfo | null | undefined>(undefined)
   // 本地维护的显示余额（null = 尚未从余额接口初始化基线）。
@@ -202,6 +234,10 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
   const [whaleImpactPulse, setWhaleImpactPulse] = useState(0)
   const [reviving, setReviving] = useState(false)
   const [showWhaleGirl, setShowWhaleGirl] = useState(loadWhaleVisible)
+  const [settingsSnapshot, setSettingsSnapshot] = useState<TokenMonitorSettingsSnapshot>()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsError, setSettingsError] = useState<string>()
+  const [notificationBubble, setNotificationBubble] = useState<string>()
   const [contextMenu, setContextMenu] = useState<{ left: number; top: number } | null>(null)
   // 悬浮窗位置（left/top），初始从 localStorage 恢复或默认右下角。
   const [pos, setPos] = useState<{ left: number; top: number }>(() => previewOverride?.fixedPosition ?? loadPos())
@@ -210,6 +246,7 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
   const [isPeak, setIsPeak] = useState(() => previewOverride?.forcedPeak ?? isPeakNow())
 
   const chargeSeq = useRef(0)
+  const chargeStreamId = useRef<string>()
   // 扣费游标是否已建立基线：首次拉取只取当前 seq（余额接口值已含历史扣费），跳过历史 events。
   const chargeSeeded = useRef(false)
   const animId = useRef(0)
@@ -230,6 +267,10 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
   // 拖拽起点：按下时的鼠标位置 + 卡片位置。
   const dragStart = useRef<{ x: number; y: number; left: number; top: number; pointerId: number; moved: boolean } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
+  const settingsRef = useRef(settingsSnapshot)
+  const notificationQueueRef = useRef(createNotificationQueueState())
+  const notificationSeeded = useRef(false)
+  const notificationBubbleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   /** 右键打开余额显示设置菜单，并限制菜单不超出视口。 */
   const onContextMenu = useCallback((event: React.MouseEvent) => {
@@ -237,7 +278,7 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
     dragStart.current = null
     setDragging(false)
     const menuWidth = 176
-    const menuHeight = 72
+    const menuHeight = 160
     setContextMenu({
       left: clamp(event.clientX, 4, Math.max(4, window.innerWidth - menuWidth - 4)),
       top: clamp(event.clientY, 4, Math.max(4, window.innerHeight - menuHeight - 4)),
@@ -255,7 +296,7 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
       const rect = event.currentTarget.getBoundingClientRect()
       setContextMenu({
         left: clamp(rect.left, 4, Math.max(4, window.innerWidth - 180)),
-        top: clamp(rect.bottom + 4, 4, Math.max(4, window.innerHeight - 76)),
+        top: clamp(rect.bottom + 4, 4, Math.max(4, window.innerHeight - 164)),
       })
     }
   }, [])
@@ -288,6 +329,21 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
     }
   }, [contextMenu])
 
+  // Clamp against the rendered menu box, not a guessed height; this keeps the
+  // right-click settings menu inside short viewports and after font/layout changes.
+  useEffect(() => {
+    if (contextMenu === null) return
+    const frame = window.requestAnimationFrame(() => {
+      const rect = contextMenuRef.current?.getBoundingClientRect()
+      if (rect === undefined) return
+      setContextMenu(current => current === null ? null : {
+        left: clamp(current.left, 4, Math.max(4, window.innerWidth - rect.width - 4)),
+        top: clamp(current.top, 4, Math.max(4, window.innerHeight - rect.height - 4)),
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [contextMenu])
+
   useEffect(() => {
     showWhaleGirlRef.current = showWhaleGirl
     if (showWhaleGirl) {
@@ -300,6 +356,50 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
     revivingRef.current = false
     setReviving(false)
   }, [showWhaleGirl])
+
+  useEffect(() => {
+    settingsRef.current = settingsSnapshot
+  }, [settingsSnapshot])
+
+  const applySettingsSnapshot = useCallback((snapshot: TokenMonitorSettingsSnapshot) => {
+    setSettingsSnapshot(snapshot)
+    setShowWhaleGirl(snapshot.settings.showWhaleGirl)
+    try {
+      localStorage.setItem(WHALE_VISIBLE_KEY, JSON.stringify(snapshot.settings.showWhaleGirl))
+    } catch {
+      // Host settings remain authoritative even when localStorage is unavailable.
+    }
+  }, [])
+
+  const openSettings = useCallback(async () => {
+    setContextMenu(null)
+    setSettingsOpen(true)
+    setSettingsError(undefined)
+    try {
+      applySettingsSnapshot(await settingsApi.get())
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : '设置读取失败，请稍后重试。')
+    }
+  }, [applySettingsSnapshot])
+
+  const saveSettings = useCallback(async (request: TokenMonitorSettingsPatchRequest) => {
+    try {
+      const snapshot = await settingsApi.patch(request)
+      applySettingsSnapshot(snapshot)
+      setSettingsError(undefined)
+      return snapshot
+    } catch (error) {
+      if (error instanceof TokenMonitorSettingsApiError && error.code === 'CONFLICT') {
+        try {
+          applySettingsSnapshot(await settingsApi.get())
+          setSettingsError('设置版本已更新，已重新读取最新值，请确认后再次保存。')
+        } catch {
+          setSettingsError('设置版本已过期，且最新值读取失败。')
+        }
+      }
+      throw error
+    }
+  }, [applySettingsSnapshot])
 
   /** 卡片完整约束在视口内；窗口缩放后也会修正并保存位置。 */
   const constrainPos = useCallback((next: { left: number; top: number }) => {
@@ -385,16 +485,16 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
     const id = ++animId.current
     const next = {
       eventId,
-      seq,
       text,
       color,
       damageKind: kind,
+      ...(seq === undefined ? {} : { seq }),
       ...(label === undefined ? {} : { label }),
     }
     setAnims((list) => [...list, { id, ...next }].slice(-MAX_ACTIVE_FLOATS))
     if (debit !== undefined && debit > 0) {
       queuedDebit.current = Math.max(0, queuedDebit.current - debit)
-      setDisplay((previous) => previous === null ? null : Math.max(0, previous - debit))
+      setDisplay((previous) => applyDebitToDisplay(previous, debit))
     }
     if (color === 'red' && revivingRef.current) {
       revivingRef.current = false
@@ -456,7 +556,16 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
     suppressWhaleReaction = false,
   ) => {
     if (debit !== undefined && debit > 0) queuedDebit.current += debit
-    animQueue.current.push({ eventId, seq, text, color, kind, label, debit, suppressWhaleReaction })
+    animQueue.current.push({
+      eventId,
+      text,
+      color,
+      kind,
+      ...(seq === undefined ? {} : { seq }),
+      ...(label === undefined ? {} : { label }),
+      ...(debit === undefined ? {} : { debit }),
+      ...(suppressWhaleReaction ? { suppressWhaleReaction } : {}),
+    })
     if (queueTimer.current === undefined && animQueue.current.length === 1) drainQueue()
   }, [drainQueue])
 
@@ -509,19 +618,45 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
 
   // 扣费轮询：每秒增量拉取；严格按 seq 逐事件入队，不按类型聚合或重排。
   useEffect(() => {
+    if (!shouldPoll) return
     let cancelled = false
     const poll = async () => {
       try {
         const res = await fetch(`/api/token-monitor/charge-events?since=${chargeSeq.current}`, { cache: 'no-store' })
         if (!res.ok) return
         const data = (await res.json()) as {
+          streamId?: string
           seq: number
+          firstSeq?: number
+          dropped?: boolean
           events: RawChargeEvent[]
         }
+        const streamChanged = chargeStreamId.current !== undefined && data.streamId !== chargeStreamId.current
+        const seqRegressed = Number.isSafeInteger(data.seq) && data.seq < chargeSeq.current
+        const gapDetected = data.dropped === true || (Number.isSafeInteger(data.firstSeq) && chargeSeq.current < (data.firstSeq as number) - 1)
         if (!chargeSeeded.current) {
           // 首次：只建立游标基线（跳过余额接口已含的历史扣费，避免重复扣减）。
           chargeSeeded.current = true
+          chargeStreamId.current = data.streamId
           chargeSeq.current = data.seq
+          return
+        }
+        if (streamChanged || seqRegressed || gapDetected) {
+          chargeStreamId.current = data.streamId
+          chargeSeq.current = data.seq
+          try {
+            const balanceRes = await fetch('/api/token-monitor/balance', { cache: 'no-store' })
+            if (balanceRes.ok) {
+              const balance = (await balanceRes.json()) as BalanceInfo | null
+              if (!cancelled && balance !== null) {
+                setBalanceInfo(balance)
+                lastBalanceSnapshot.current = balance.totalBalance
+                setDisplay(balance.totalBalance + queuedDebit.current)
+              }
+            }
+          } catch {
+            // 校准失败时由常规余额轮询重试。
+          }
           return
         }
         const events = [...(data.events ?? [])]
@@ -573,10 +708,11 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [trigger])
+  }, [shouldPoll, trigger])
 
   // 余额轮询：每 60 秒校准显示余额，检测充值（余额变多）触发绿色动画。
   useEffect(() => {
+    if (!shouldPoll) return
     let cancelled = false
     const poll = async () => {
       try {
@@ -632,21 +768,82 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
       cancelled = true
       clearInterval(timer)
     }
-  }, [trigger])
+  }, [shouldPoll, trigger])
 
-  if (balanceInfo === undefined) return null
+  useEffect(() => {
+    if (!shouldPoll) return
+    const controller = new AbortController()
+    const refresh = async () => {
+      try {
+        const snapshot = await settingsApi.get(controller.signal)
+        if (!controller.signal.aborted) applySettingsSnapshot(snapshot)
+      } catch {
+        // 设置接口失败时保留共享默认值，不影响余额、预算和动画数据流。
+      }
+    }
+    const onFocus = () => void refresh()
+    void refresh()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      controller.abort()
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [applySettingsSnapshot, shouldPoll])
 
-  if (balanceInfo === null || error) {
-    return (
-      <div style={CARD} data-token-monitor-balance="">
-        余额：未配置 API Key 或查询失败
-      </div>
-    )
-  }
+  const consumeNotification = useCallback(() => {
+    const result = dequeueNotificationItem(notificationQueueRef.current, Date.now())
+    notificationQueueRef.current = result.state
+    if (!('item' in result)) return
+    if (settingsRef.current?.settings.whaleBubbleEnabled === false) return
+    setNotificationBubble(notificationText(result.item))
+    if (notificationBubbleTimer.current !== undefined) clearTimeout(notificationBubbleTimer.current)
+    notificationBubbleTimer.current = setTimeout(() => {
+      notificationBubbleTimer.current = undefined
+      setNotificationBubble(undefined)
+    }, 4_000)
+  }, [])
+
+  useEffect(() => {
+    if (!shouldPoll) return
+    const timer = setInterval(consumeNotification, 250)
+    return () => clearInterval(timer)
+  }, [consumeNotification, shouldPoll])
+
+  useEffect(() => {
+    if (!shouldPoll) return
+    let cancelled = false
+    const poll = async () => {
+      const result = await notificationEventsApi.poll(notificationQueueRef.current.cursor)
+      if (cancelled || !result.ok) return
+      if (!notificationSeeded.current) {
+        notificationSeeded.current = true
+        notificationQueueRef.current = {
+          ...notificationQueueRef.current,
+          cursor: { streamId: result.batch.streamId, seq: result.batch.seq },
+        }
+        return
+      }
+      const update = applyNotificationPollResult(notificationQueueRef.current, result, Date.now())
+      notificationQueueRef.current = update.state
+      consumeNotification()
+    }
+    void poll()
+    const timer = setInterval(() => void poll(), 1_000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      if (notificationBubbleTimer.current !== undefined) clearTimeout(notificationBubbleTimer.current)
+    }
+  }, [consumeNotification, shouldPoll])
+
+  if (previewOverride === undefined && routeEligible !== true) return null
+  // 余额模式保持原来的加载期隐藏；今日花费来自本地 usage.jsonl，不能被远端余额接口阻断。
+  if (balanceInfo === undefined && !error) return null
 
   const amountColor = flash === 'red' ? RED : flash === 'green' ? GREEN : 'var(--dsh-color-accent, #4c8dff)'
-  const shown = display ?? balanceInfo.totalBalance
-  const depleted = shown <= 0
+  const balanceAvailable = balanceInfo !== undefined && balanceInfo !== null && !error
+  const shownBalance = display ?? balanceInfo?.totalBalance ?? 0
+  const depleted = balanceAvailable && shownBalance <= 0
   const onWhalePoseComplete = (completedPose: WhalePose) => {
     if (completedPose !== 'revive-recharge' || !revivingRef.current) return
     revivingRef.current = false
@@ -714,9 +911,51 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
             <span aria-hidden="true" style={{ width: 14, textAlign: 'center', color: '#79b8ff' }}>{showWhaleGirl ? '✓' : ''}</span>
             <span>显示鲸鱼娘</span>
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => { void openSettings() }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 8px',
+              border: 0, borderRadius: 4, background: 'transparent', color: 'inherit',
+              textAlign: 'left', cursor: 'pointer', font: 'inherit',
+            }}
+            onMouseEnter={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,0.10)' }}
+            onMouseLeave={(event) => { event.currentTarget.style.background = 'transparent' }}
+          >
+            <span aria-hidden="true" style={{ width: 14, textAlign: 'center', color: '#79b8ff' }}>⚙</span>
+            <span>详细设置</span>
+          </button>
         </div>
       )}
-      {showWhaleGirl && depleted && !reviving && (
+      {settingsOpen && (
+        <div
+          role="dialog"
+          aria-label="Token Monitor 详细设置"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1200, display: 'grid', placeItems: 'center',
+            padding: 16, background: 'rgba(25, 20, 34, 0.24)',
+          }}
+          onPointerDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false) }}
+        >
+          {settingsError !== undefined && settingsSnapshot === undefined
+            ? (
+              <div role="alert" style={{ maxWidth: 420, padding: 20, borderRadius: 14, background: 'var(--dsh-color-surface, #fff)', color: 'var(--dsh-color-text, #292534)' }}>
+                {settingsError}
+                <button type="button" onClick={() => setSettingsOpen(false)} style={{ display: 'block', marginTop: 12 }}>关闭</button>
+              </div>
+            )
+            : settingsSnapshot !== undefined && (
+              <TokenMonitorSettingsPanel
+                snapshot={settingsSnapshot}
+                onSave={saveSettings}
+                onClose={() => setSettingsOpen(false)}
+                wechatApi={wechatConnectionApi}
+              />
+            )}
+        </div>
+      )}
+      {showWhaleGirl && balanceAvailable && depleted && !reviving && (
       <div
         aria-hidden="true"
         data-token-monitor-whale-depleted=""
@@ -746,7 +985,7 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
         />
       </div>
       )}
-      {showWhaleGirl && (reviving || !depleted) && (
+      {showWhaleGirl && balanceAvailable && (reviving || !depleted) && (
         <div
           aria-hidden="true"
           style={{
@@ -766,11 +1005,11 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
             pose={whalePose}
             impactPulse={whaleImpactPulse}
             onPoseComplete={onWhalePoseComplete}
-            syncEpoch={previewOverride?.syncEpoch}
+            {...(previewOverride?.syncEpoch === undefined ? {} : { syncEpoch: previewOverride.syncEpoch })}
           />
         </div>
       )}
-      {anims.length > 0 && !depleted && (
+      {anims.length > 0 && balanceAvailable && !depleted && (
         <div
           aria-hidden="true"
           data-token-monitor-damage-layer="head-front"
@@ -800,7 +1039,7 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
                 justifyContent: 'center',
                 gap: anim.damageKind === 'miss' ? 5 : 4,
                 fontSize: anim.damageKind === 'miss' ? 23 : FLOAT.fontSize,
-                fontWeight: anim.damageKind === 'miss' ? 800 : FLOAT.fontWeight,
+                fontWeight: 800,
                 animation: FLOAT.animation,
                 textShadow: anim.damageKind === 'miss'
                   ? '0 1px 3px rgba(0,0,0,0.76), 0 0 7px rgba(255,59,48,0.42)'
@@ -821,8 +1060,36 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
           ))}
         </div>
       )}
-      <div style={{ position: 'relative', zIndex: 4 }}>
-      余额{' '}
+      {notificationBubble !== undefined && showWhaleGirl && balanceAvailable && !depleted && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-token-monitor-notification-bubble=""
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 'calc(100% + 8px)',
+            maxWidth: 260,
+            transform: 'none',
+            zIndex: 5,
+            pointerEvents: 'none',
+            padding: '7px 11px',
+            borderRadius: 12,
+            background: 'rgba(255,255,255,0.96)',
+            color: '#3b3150',
+            border: '1px solid rgba(128, 101, 215, 0.24)',
+            boxShadow: '0 7px 20px rgba(42, 27, 69, 0.18)',
+            fontSize: 12,
+            lineHeight: 1.35,
+            textAlign: 'center',
+            whiteSpace: 'normal',
+          }}
+        >
+          {notificationBubble}
+        </div>
+      )}
+      <div style={{ position: 'relative', zIndex: 4 }} data-token-monitor-display="">
+      {'余额'}{' '}
       <span
         style={{
           position: 'relative',
@@ -841,7 +1108,9 @@ export function BalanceWidget({ previewOverride }: BalanceWidgetProps) {
             willChange: 'transform',
           }}
         >
-          {balanceInfo.currency} {shown.toFixed(2)}
+          {balanceAvailable
+            ? <>{balanceInfo.currency} {shownBalance.toFixed(2)}</>
+            : <>未配置 API Key 或查询失败</>}
         </span>
       </span>
       <span

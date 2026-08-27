@@ -1,3 +1,11 @@
+<#
+  dsh-damage-pulse 原生侧边栏会话金额（开发/历史兼容工具，供完整 DSH 源码部署）：
+  新宿主通过 sidebar.workspaces.sessionRow.trailing 正式席位由标准包原生显示金额；
+  旧版/社区打包客户端由标准包内置的 fail-closed 兼容桥安全显示。本脚本仅用于
+  在完整 DSH 源码上手工挂载（带备份、幂等、结构不匹配即停止）。
+  若宿主已声明正式席位/稳定会话行标记（sessionRow.trailing、data-session-row-trailing-slot、
+  data-session-id）或标准包已显示金额，脚本会直接退出，避免重复写入。
+#>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
@@ -52,6 +60,20 @@ foreach ($target in $targets) {
 $tree = (Read-Utf8File $treePath).Replace("`r`n", "`n")
 $rows = (Read-Utf8File $rowsPath).Replace("`r`n", "`n")
 $css = (Read-Utf8File $cssPath).Replace("`r`n", "`n")
+
+# 标准包能力预检：宿主已声明正式席位或稳定会话行标记时不再手工挂载，避免双写。
+$workspaceBundlePath = Join-Path $workspaceRoot 'lib\client.js'
+$workspaceBundleText = ''
+if (Test-Path -LiteralPath $workspaceBundlePath -PathType Leaf) {
+  $workspaceBundleText = (Read-Utf8File $workspaceBundlePath).Replace("`r`n", "`n")
+}
+$nativeSeatDeclared = (($tree + $rows + $css + $workspaceBundleText).Contains('sessionRow.trailing')) `
+  -or (($tree + $workspaceBundleText).Contains('data-session-row-trailing-slot')) `
+  -or (($tree + $workspaceBundleText).Contains('data-session-id'))
+if ($nativeSeatDeclared) {
+  Write-Host 'dsh-damage-pulse: the target harness already declares the native sidebar trailing seat (or stable session-row markers); the standard package renders session amounts natively. No manual patch applied.'
+  exit 0
+}
 
 $treeInstalled = $tree.Contains('function sessionCost(') -and $tree.Contains('tokenCost?.cost')
 $rowsInstalled = $rows.Contains('function costLabel(') -and $rows.Contains('className={css.cost}')

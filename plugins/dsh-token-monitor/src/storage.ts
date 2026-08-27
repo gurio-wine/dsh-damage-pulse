@@ -8,7 +8,8 @@
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { SessionSummary, UsageRecord } from './types.ts'
+import { beijingDateKey } from './todaySpend.ts'
+import { isValidUsageRecord, normalizeUsageRecord, type SessionSummary, type TodaySpendInfo, type UsageRecord } from './types.ts'
 
 /** 明细数据目录：~/.dsh/data/dsh-token-monitor/ */
 const DATA_DIR = join(homedir(), '.dsh', 'data', 'dsh-token-monitor')
@@ -20,6 +21,8 @@ export type UsageEligibility = (record: UsageRecord) => boolean
 export class UsageStorage {
   private readonly summaries = new Map<string, SessionSummary>()
   private readonly records: UsageRecord[] = []
+  private readonly dailySpend = new Map<string, { cost: number; calls: number }>()
+  private readonly seenSourceEvents = new Set<string>()
   private readonly isEligible: UsageEligibility
   private readonly dataDir: string
 
@@ -29,7 +32,7 @@ export class UsageStorage {
     try {
       mkdirSync(this.dataDir, { recursive: true })
     } catch (error) {
-      console.warn(`[dsh-damage-pulse] 创建数据目录失败: ${String(error)}`)
+      console.warn(`[dsh-token-monitor] 创建数据目录失败: ${String(error)}`)
     }
     this.loadHistory()
   }
@@ -43,69 +46,95 @@ export class UsageStorage {
         const trimmed = line.trim()
         if (trimmed === '') continue
         try {
-          const record = JSON.parse(trimmed) as UsageRecord
-          if (this.isEligible(record)) this.records.push(record)
+          const record = normalizeUsageRecord(JSON.parse(trimmed))
+          if (record !== undefined && isValidUsageRecord(record) && this.isEligible(record)) {
+            if (this.isDuplicateSourceEvent(record)) continue
+            this.records.push(record)
+            this.summaries.set(record.sessionId, this.fold(record))
+            this.addToDailySpend(record)
+          }
           else excluded++
         } catch {
           // 跳过损坏的行
         }
       }
       if (this.records.length > 0) {
-        console.log(`[dsh-damage-pulse] 已加载 ${this.records.length} 条历史明细`)
+        console.log(`[dsh-token-monitor] 已加载 ${this.records.length} 条历史明细`)
       }
       if (excluded > 0) {
-        console.log(`[dsh-damage-pulse] 已从运行时汇总排除 ${excluded} 条不合格历史明细（原始 JSONL 未修改）`)
+        console.log(`[dsh-token-monitor] 已从运行时汇总排除 ${excluded} 条不合格历史明细（原始 JSONL 未修改）`)
       }
     } catch {
       // 首次运行无文件，静默
     }
   }
 
+  /** 将明细折叠到会话摘要；冷启动与新增路径共用，避免摘要状态分叉。 */
+  private fold(record: UsageRecord): SessionSummary {
+    const prev = this.summaries.get(record.sessionId)
+    if (prev === undefined) {
+      return {
+        sessionId: record.sessionId,
+        calls: 1,
+        inputTokens: record.inputTokens,
+        cacheReadTokens: record.cacheReadTokens,
+        cacheWriteTokens: record.cacheWriteTokens,
+        outputTokens: record.outputTokens,
+        totalTokens: record.inputTokens + record.cacheReadTokens + record.cacheWriteTokens + record.outputTokens,
+        cost: record.cost,
+        lastActivity: record.timestamp,
+      }
+    }
+    return {
+      ...prev,
+      calls: prev.calls + 1,
+      inputTokens: prev.inputTokens + record.inputTokens,
+      cacheReadTokens: prev.cacheReadTokens + record.cacheReadTokens,
+      cacheWriteTokens: prev.cacheWriteTokens + record.cacheWriteTokens,
+      outputTokens: prev.outputTokens + record.outputTokens,
+      totalTokens: prev.totalTokens + record.inputTokens + record.cacheReadTokens + record.cacheWriteTokens + record.outputTokens,
+      cost: prev.cost + record.cost,
+      lastActivity: record.timestamp,
+    }
+  }
+
+  /** 将合格明细累加到北京时间日期索引，避免今日消费查询重复扫描全部历史。 */
+  private addToDailySpend(record: UsageRecord): void {
+    const date = beijingDateKey(record.timestamp)
+    const previous = this.dailySpend.get(date)
+    if (previous === undefined) {
+      this.dailySpend.set(date, { cost: record.cost, calls: 1 })
+      return
+    }
+    previous.cost += record.cost
+    previous.calls += 1
+  }
+
   /** 把一条单次记录累加到对应会话，并追加持久化明细。 */
   add(record: UsageRecord): SessionSummary | undefined {
-    if (!this.isEligible(record)) return undefined
-    const prev = this.summaries.get(record.sessionId)
-    const next: SessionSummary =
-      prev === undefined
-        ? {
-            sessionId: record.sessionId,
-            calls: 1,
-            inputTokens: record.inputTokens,
-            cacheReadTokens: record.cacheReadTokens,
-            cacheWriteTokens: record.cacheWriteTokens,
-            outputTokens: record.outputTokens,
-            totalTokens:
-              record.inputTokens + record.cacheReadTokens + record.cacheWriteTokens + record.outputTokens,
-            cost: record.cost,
-            lastActivity: record.timestamp,
-          }
-        : {
-            ...prev,
-            calls: prev.calls + 1,
-            inputTokens: prev.inputTokens + record.inputTokens,
-            cacheReadTokens: prev.cacheReadTokens + record.cacheReadTokens,
-            cacheWriteTokens: prev.cacheWriteTokens + record.cacheWriteTokens,
-            outputTokens: prev.outputTokens + record.outputTokens,
-            totalTokens:
-              prev.totalTokens +
-              record.inputTokens +
-              record.cacheReadTokens +
-              record.cacheWriteTokens +
-              record.outputTokens,
-            cost: prev.cost + record.cost,
-            lastActivity: record.timestamp,
-          }
+    if (!isValidUsageRecord(record) || !this.isEligible(record)) return undefined
+    if (this.isDuplicateSourceEvent(record)) return undefined
+    const next = this.fold(record)
     this.summaries.set(record.sessionId, next)
 
     // 明细：内存缓存 + JSONL 追加（fail-soft，落盘失败不影响运行时）。
     this.records.push(record)
+    this.addToDailySpend(record)
     try {
       appendFileSync(join(this.dataDir, 'usage.jsonl'), `${JSON.stringify(record)}\n`, 'utf8')
     } catch (error) {
-      console.warn(`[dsh-damage-pulse] 明细落盘失败: ${String(error)}`)
+      console.warn(`[dsh-token-monitor] 明细落盘失败: ${String(error)}`)
     }
 
     return next
+  }
+
+  private isDuplicateSourceEvent(record: UsageRecord): boolean {
+    if (record.sourceEventSeq === undefined) return false
+    const key = JSON.stringify([record.sessionId, record.sourceEventSeq])
+    if (this.seenSourceEvents.has(key)) return true
+    this.seenSourceEvents.add(key)
+    return false
   }
 
   get(sessionId: string): SessionSummary | undefined {
@@ -120,5 +149,19 @@ export class UsageStorage {
   history(sessionId?: string): UsageRecord[] {
     if (sessionId === undefined) return [...this.records]
     return this.records.filter((record) => record.sessionId === sessionId)
+  }
+
+  /** 按北京时间自然日聚合当前运行时已通过资格门禁的记录。 */
+  todaySpend(now = Date.now()): TodaySpendInfo {
+    const date = beijingDateKey(now)
+    const summary = this.dailySpend.get(date)
+    return {
+      date,
+      timeZone: 'Asia/Shanghai',
+      currency: 'CNY',
+      cost: summary?.cost ?? 0,
+      calls: summary?.calls ?? 0,
+      updatedAt: now,
+    }
   }
 }

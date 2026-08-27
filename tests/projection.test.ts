@@ -8,14 +8,17 @@ import { createTokenCostProjectionDefinition } from '../plugins/dsh-token-monito
 
 const EVENT_TIME = Date.UTC(2026, 7, 21, 0, 0, 0)
 
-test('uses the DSH 0.1.1 stateSchema and wire projection contract', () => {
+test("exposes both DSH projection contracts (0.1.0 schema/view and 0.1.1 stateSchema/wire)", () => {
   const definition = createTokenCostProjectionDefinition(PRICE_TABLE)
-  const legacyShape = definition as unknown as Record<string, unknown>
 
-  assert.equal(legacyShape.schema, undefined)
-  assert.equal(legacyShape.view, undefined)
+  // 0.1.1-rc.1/rc.2 host: stateSchema + wire.
+  assert.ok(definition.stateSchema)
   assert.ok(definition.wire)
+  assert.ok(definition.wire.viewSchema)
   assert.equal(definition.stateVersion, 4)
+  // 0.1.0-rc.6/rc.7/rc.8 host: schema + view, aliasing the same constraints and implementation.
+  assert.equal(definition.schema, definition.wire.viewSchema)
+  assert.equal(definition.view, definition.wire.view)
 
   const initialState = definition.stateSchema.parse(definition.init())
   const initialView = definition.wire.viewSchema.parse(definition.wire.view(initialState))
@@ -125,4 +128,37 @@ test('serves tokenCost through the real DSH 0.1.1 projection registry', () => {
     lastActivity: 0,
   })
   assert.deepEqual(restored.checkpoint.tokenCost?.val, createTokenCostProjectionDefinition(PRICE_TABLE).init())
+})
+
+test('regression #10: old 0.1.0 host path def.schema.parse(def.view(state)) survives folds', () => {
+  const definition = createTokenCostProjectionDefinition(PRICE_TABLE)
+  const event = {
+    type: 'assistant/message',
+    seq: 0,
+    time: EVENT_TIME,
+    sourceEventSeqs: [],
+    data: {
+      turn: 1,
+      step: 1,
+      message: {
+        id: 'old-host-message',
+        role: 'assistant',
+        content: [],
+        source: { kind: 'model', provider: OFFICIAL_PROVIDER_ID, model: 'deepseek-v4-flash' },
+      },
+      usage: { inputTokens: 1_000, cacheReadTokens: 500, cacheWriteTokens: 100, outputTokens: 200 },
+    },
+  } as unknown as SessionEvent
+
+  // 0.1.0-rc.6/rc.7/rc.8 宿主读取 schema/view 形态：先 view(state) 再 schema.parse。
+  const state = definition.apply(definition.init(), event)
+  const parsed = definition.schema.parse(definition.view(state))
+  assert.equal(parsed.calls, 1)
+  assert.equal(parsed.totalTokens, 1_800)
+  assert.ok(parsed.cost > 0)
+  assert.equal(parsed.lastActivity, EVENT_TIME)
+
+  // 连续 fold 后旧路径依然可解析，不抛 strict()/schema 崩溃。
+  const replayed = definition.apply(definition.apply(state, event), event)
+  assert.equal(definition.schema.parse(definition.view(replayed)).calls, 3)
 })

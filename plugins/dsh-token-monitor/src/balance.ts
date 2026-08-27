@@ -13,6 +13,7 @@ import type { BalanceInfo } from './types.ts'
 const DEEPSEEK_API_KEY = credentialRef('DEEPSEEK_API_KEY')
 const BALANCE_URL = 'https://api.deepseek.com/user/balance'
 
+/** DeepSeek /user/balance 原始响应（金额字段为字符串）。 */
 /** 从 ctx.credentials 解析 DeepSeek API key（每操作重新解析，遵循凭据热更新约定）。 */
 export async function resolveApiKey(ctx: Context): Promise<string | undefined> {
   const resolved = await ctx.credentials.resolve(DEEPSEEK_API_KEY)
@@ -49,30 +50,30 @@ export class BalanceService {
 
   /** 查询并缓存最新余额；失败只告警不抛。 */
   async refresh(): Promise<BalanceInfo | undefined> {
-    const apiKey = await resolveApiKey(this.ctx)
-    if (apiKey === undefined) {
-      // 未配置只告警一次，避免每次轮询刷屏。
-      if (!this.warnedMissingKey) {
-        console.warn('[dsh-damage-pulse] 未配置 DEEPSEEK_API_KEY，余额卡片将显示未配置态')
-        this.warnedMissingKey = true
-      }
-      return undefined
-    }
     try {
+      const apiKey = await resolveApiKey(this.ctx)
+      if (apiKey === undefined) {
+        // 未配置只告警一次，避免每次轮询刷屏。
+        if (!this.warnedMissingKey) {
+          console.warn('[dsh-token-monitor] 未配置 DEEPSEEK_API_KEY，余额卡片将显示未配置态')
+          this.warnedMissingKey = true
+        }
+        return undefined
+      }
       const next = await fetchBalance(apiKey)
       this.latest = next
       // 成功日志只在余额变化时打印，避免 60s 轮询刷屏。
       if (this.lastLoggedTotal !== next.totalBalance) {
         this.lastLoggedTotal = next.totalBalance
         console.log(
-          `[dsh-damage-pulse] 余额 ${next.currency} ${next.totalBalance.toFixed(2)} ` +
+          `[dsh-token-monitor] 余额 ${next.currency} ${next.totalBalance.toFixed(2)} ` +
             `(赠送 ${next.grantedBalance.toFixed(2)} / 充值 ${next.toppedUpBalance.toFixed(2)})`,
         )
       }
       return next
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      console.warn(`[dsh-damage-pulse] 余额查询失败: ${message}`)
+      console.warn(`[dsh-token-monitor] 余额查询失败: ${message}`)
       return undefined
     }
   }
@@ -101,7 +102,7 @@ export function attachBalance(ctx: Context): BalanceService {
   ctx.effect(() => {
     service.start()
     return () => service.stop()
-  }, 'dsh-damage-pulse balance polling')
+  }, 'dsh-token-monitor balance polling')
   return service
 }
 

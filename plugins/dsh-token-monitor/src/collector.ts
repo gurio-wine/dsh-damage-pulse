@@ -8,7 +8,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import { priceUsage, type PricingTable } from './pricing.ts'
 import { recordCharge } from './charge.ts'
-import type { TokenUsageRecordData, UsageRecord } from './types.ts'
+import { isValidUsageRecord, type TokenUsageRecordData, type UsageRecord } from './types.ts'
 import { UsageStorage } from './storage.ts'
 
 /** 把一条 assistant/message 的 usage 转成 UsageRecord。 */
@@ -16,6 +16,7 @@ function buildRecord(
   sessionId: string,
   turn: number,
   step: number,
+  sourceEventSeq: number,
   timestamp: number,
   provider: string,
   model: string,
@@ -37,10 +38,13 @@ function buildRecord(
     priceTable,
   )
   if (breakdown === undefined) return undefined
-  return {
+  // 空 usage 不是可展示/可通知的扣费，在账本入口丢弃。
+  if (breakdown.cost <= 0) return undefined
+  const record: UsageRecord = {
     sessionId,
     turn,
     step,
+    sourceEventSeq,
     timestamp,
     provider,
     model,
@@ -57,10 +61,20 @@ function buildRecord(
     cost: breakdown.cost,
     peak: breakdown.peak,
   }
+  return isValidUsageRecord(record) ? record : undefined
 }
 
 /** 挂载采集器：监听 session/event，累计每次模型调用的 token 与金额。 */
-export function attachCollector(ctx: Context, storage: UsageStorage, priceTable: PricingTable): void {
+export interface CollectorOptions {
+  onPersistedRecord?: (record: UsageRecord, damageKind: 'normal' | 'miss') => void
+}
+
+export function attachCollector(
+  ctx: Context,
+  storage: UsageStorage,
+  priceTable: PricingTable,
+  options: CollectorOptions = {},
+): void {
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
     if (event.type !== 'assistant/message') return
     const usage = event.data.usage
@@ -72,6 +86,7 @@ export function attachCollector(ctx: Context, storage: UsageStorage, priceTable:
       session.id,
       event.data.turn,
       event.data.step,
+      event.seq,
       event.time,
       source.provider,
       source.model,
@@ -87,7 +102,8 @@ export function attachCollector(ctx: Context, storage: UsageStorage, priceTable:
       cacheHit: { tokens: record.cacheReadTokens, cost: record.costCacheRead },
       cacheMiss: { tokens: record.inputTokens + record.cacheWriteTokens, cost: record.costInput + record.costCacheWrite },
       output: { tokens: record.outputTokens, cost: record.costOutput },
-    })
+    }, { sessionId: record.sessionId, sourceEventSeq: record.sourceEventSeq })
+    options.onPersistedRecord?.(record, damageKind)
 
     // 追加「单次用量」仅日志事件，供 Web Client 回放渲染单次用量行（F1）。
     // 仅日志事件不进模型 surface，非 SurfaceEventType 只需 (type, data)。

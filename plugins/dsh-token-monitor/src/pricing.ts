@@ -29,8 +29,7 @@ export const PRICE_TABLE: PricingTable = {
   // 工作日高峰：北京时间 9:00-12:00、14:00-18:00；周末全天按低谷价。
   peakHours: [[9, 12], [14, 18]],
   models: {
-    // Vision Exp 的图片会先折算为 prompt tokens，并随文本输入一起进入 usage；
-    // 因此这里与官方表中的 Flash 使用同一组输入/输出单价，不额外增加图片费率。
+    // 图片由 API 按尺寸折算到 prompt_tokens，不能在插件层重复估算。
     'deepseek-v4-flash-vision-exp': {
       offPeak: { input: 1.5, cacheHit: 0.05, output: 4.5 },
       peak: { input: 3.0, cacheHit: 0.10, output: 9.0 },
@@ -84,9 +83,7 @@ export function selectPriceTable(ts: number, table: PricingTable = PRICE_TABLE):
 export interface CostBreakdown {
   costInput: number
   costCache: number
-  /** 缓存命中读取费用（costCache 的组成部分）。 */
   costCacheRead: number
-  /** 缓存写入费用（按输入单价计价，costCache 的组成部分）。 */
   costCacheWrite: number
   costOutput: number
   cost: number
@@ -134,8 +131,7 @@ export function isPeakHour(ts: number, peakHours: Array<[number, number]>): bool
 }
 
 /**
- * 归一化模型名后查价：直接命中优先，否则按最长前缀匹配，
- * 使 `deepseek-v4-flash-vision-exp-2026` 不会被较短的 Flash 前缀抢先匹配。
+ * 归一化模型名后查价：直接命中优先，否则按最长前缀匹配。
  */
 export function resolveModelPrice(
   model: string,
@@ -182,6 +178,8 @@ export function priceUsage(
   ts: number,
   table: PricingTable = PRICE_TABLE,
 ): CostBreakdown | undefined {
+  if (![inputTokens, cacheReadTokens, cacheWriteTokens, outputTokens].every(value => Number.isSafeInteger(value) && value >= 0)) return undefined
+  if (!Number.isSafeInteger(ts) || ts < 0) return undefined
   // 按时间戳选择生效价格表：8-17 前旧统一价，之后峰谷价（settings 可覆盖后者）。
   const active = selectPriceTable(ts, table)
   const eligibility = resolvePricingEligibility(provider, model, ts, table)
@@ -193,13 +191,16 @@ export function priceUsage(
   const costCacheWrite = (cacheWriteTokens / 1e6) * rate.input
   const costCache = costCacheRead + costCacheWrite
   const costOutput = (outputTokens / 1e6) * rate.output
+  if (![costInput, costCacheRead, costCacheWrite, costCache, costOutput].every(value => Number.isFinite(value) && value >= 0)) return undefined
+  const cost = costInput + costCache + costOutput
+  if (!Number.isFinite(cost) || cost < 0) return undefined
   return {
     costInput,
     costCache,
     costCacheRead,
     costCacheWrite,
     costOutput,
-    cost: costInput + costCache + costOutput,
+    cost,
     peak,
   }
 }

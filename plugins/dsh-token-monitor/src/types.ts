@@ -8,6 +8,8 @@ export interface UsageRecord {
   sessionId: string
   turn: number
   step: number
+  /** Originating session event sequence; present on records written by current collectors. */
+  sourceEventSeq?: number
   timestamp: number
   provider: string
   model: string
@@ -23,14 +25,49 @@ export interface UsageRecord {
   reasoningTokens: number
   costInput: number
   costCache: number
-  /** 缓存命中读取费用。 */
   costCacheRead: number
-  /** 缓存写入费用。 */
   costCacheWrite: number
   costOutput: number
   cost: number
   /** 是否高峰时段计价。 */
   peak: boolean
+}
+
+/**
+ * Normalize durable usage rows written before cache read/write costs were split.
+ * @param value Parsed JSONL value from durable history.
+ * @returns A normalized candidate for strict validation, or undefined for non-object input.
+ */
+export function normalizeUsageRecord(value: unknown): UsageRecord | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const candidate = value as Record<string, unknown>
+  const normalized: Record<string, unknown> = { ...candidate }
+  if (!Object.prototype.hasOwnProperty.call(candidate, 'costCacheRead')) {
+    normalized.costCacheRead = candidate.costCache
+  }
+  if (!Object.prototype.hasOwnProperty.call(candidate, 'costCacheWrite')) {
+    normalized.costCacheWrite = 0
+  }
+  return normalized as unknown as UsageRecord
+}
+
+export function isValidUsageRecord(record: UsageRecord): boolean {
+  if (typeof record !== 'object' || record === null) return false
+  if (![record.sessionId, record.provider, record.model].every(value => typeof value === 'string' && value.trim() !== '')) return false
+  for (const value of [record.turn, record.step, record.timestamp, record.inputTokens, record.cacheReadTokens, record.cacheWriteTokens, record.outputTokens, record.reasoningTokens]) {
+    if (!Number.isSafeInteger(value) || value < 0) return false
+  }
+  if (record.sourceEventSeq !== undefined && (!Number.isSafeInteger(record.sourceEventSeq) || record.sourceEventSeq < 0)) return false
+  for (const value of [record.costInput, record.costCache, record.costCacheRead, record.costCacheWrite, record.costOutput, record.cost]) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return false
+  }
+  if (typeof record.peak !== 'boolean') return false
+  const cacheTotal = record.costCacheRead + record.costCacheWrite
+  const componentTotal = record.costInput + cacheTotal + record.costOutput
+  const tolerance = Math.max(1e-12, record.cost * 1e-9)
+  return Number.isFinite(componentTotal)
+    && Math.abs(record.costCache - cacheTotal) <= tolerance
+    && Math.abs(record.cost - componentTotal) <= tolerance
 }
 
 /** 单个会话的累计用量与金额。 */
@@ -54,6 +91,17 @@ export interface BalanceInfo {
   grantedBalance: number
   toppedUpBalance: number
   isAvailable: boolean
+  updatedAt: number
+}
+
+/** 北京时间自然日内的合格 DeepSeek 官方调用花费汇总。 */
+export interface TodaySpendInfo {
+  /** 北京时间下的 YYYY-MM-DD；协议字段仍使用 Asia/Shanghai 标识。 */
+  date: string
+  timeZone: 'Asia/Shanghai'
+  currency: 'CNY'
+  cost: number
+  calls: number
   updatedAt: number
 }
 

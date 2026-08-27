@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 /**
  * 扣费事件环形缓冲区：collector 每次模型调用完成时记录精确扣费金额，
  * 供 Client 通过 /api/token-monitor/charge-events 增量拉取，
@@ -13,7 +15,6 @@ export interface ChargeComponent {
   cost: number
 }
 
-/** 一次模型调用的可解释费用构成。各分量费用之和等于 ChargeEvent.cost。 */
 export interface ChargeBreakdown {
   cacheHit: ChargeComponent
   cacheMiss: ChargeComponent
@@ -30,15 +31,31 @@ export interface ChargeEvent {
   timestamp: number
   /** Client 应播放的扣血动画类型。 */
   damageKind: DamageKind
-  /** 新版 Client 使用的命中/未命中/输出费用分量；旧事件可缺省。 */
+  /** Originating session event identity, used to make replay handling idempotent. */
+  sourceEvent?: { sessionId: string; seq: number }
   breakdown?: ChargeBreakdown
+}
+
+export interface ChargeBatch {
+  streamId: string
+  seq: number
+  firstSeq: number
+  dropped: boolean
+  events: ChargeEvent[]
 }
 
 /** 环形缓冲区上限：保留最近 500 次扣费，避免长期运行无限增长。 */
 const MAX_EVENTS = 500
 
 const events: ChargeEvent[] = []
+const seenSourceEvents = new Set<string>()
+const seenSourceEventOrder: string[] = []
 let seqCounter = 0
+const streamId = randomUUID()
+
+function sourceEventKey(sourceEvent: { sessionId: string; seq: number }): string {
+  return JSON.stringify([sourceEvent.sessionId, sourceEvent.seq])
+}
 
 /** 记录一次扣费（cost 为正数金额）。 */
 export function recordCharge(
@@ -46,8 +63,22 @@ export function recordCharge(
   timestamp: number,
   damageKind: DamageKind,
   breakdown?: ChargeBreakdown,
+  sourceEvent?: { sessionId: string; sourceEventSeq?: number },
 ): void {
-  events.push({ seq: ++seqCounter, cost, timestamp, damageKind, breakdown })
+  const identity = sourceEvent?.sourceEventSeq === undefined
+    ? undefined
+    : { sessionId: sourceEvent.sessionId, seq: sourceEvent.sourceEventSeq }
+  if (identity !== undefined) {
+    const key = sourceEventKey(identity)
+    if (seenSourceEvents.has(key)) return
+    seenSourceEvents.add(key)
+    seenSourceEventOrder.push(key)
+    if (seenSourceEventOrder.length > 2_000) {
+      const expired = seenSourceEventOrder.shift()
+      if (expired !== undefined) seenSourceEvents.delete(expired)
+    }
+  }
+  events.push({ seq: ++seqCounter, cost, timestamp, damageKind, ...(identity === undefined ? {} : { sourceEvent: identity }), ...(breakdown === undefined ? {} : { breakdown }) })
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS)
 }
 
@@ -60,4 +91,19 @@ export function chargesSince(since: number): ChargeEvent[] {
 /** 当前最大 seq（Client 用它初始化拉取游标）。 */
 export function currentChargeSeq(): number {
   return seqCounter
+}
+
+export function currentChargeStreamId(): string {
+  return streamId
+}
+
+export function chargeBatchSince(since: number): ChargeBatch {
+  const firstSeq = events[0]?.seq ?? seqCounter + 1
+  return {
+    streamId,
+    seq: seqCounter,
+    firstSeq,
+    dropped: events.length > 0 && since < firstSeq - 1,
+    events: chargesSince(since),
+  }
 }

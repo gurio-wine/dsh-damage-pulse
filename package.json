@@ -20,7 +20,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test tests/*.test.ts",
+    "test": "node --test tests/*.test.ts && vitest run packages/util/token-monitor-contract/tests packages/client/ui-token-monitor/tests plugins/dsh-token-monitor/tests plugins/wechat-notify/tests",
+    "typecheck": "tsc --noEmit -p tsconfig.bundle.json",
     "build": "tsdown",
     "check:bundle": "node scripts/check-standard-bundle.mjs",
     "pack:check": "pnpm pack --dry-run"
@@ -30,7 +31,8 @@
       "patch": "./cordis.patch.yml"
     },
     "client": {
-      "inject": [
+     "inject": [
+        "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-layout"
@@ -60,6 +62,7 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.5 || ^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.5 || ^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.5 || ^0.1.1-rc.2",
     "@deepseek-ai/dsh-client-ui-layout": "^0.1.0-rc.5 || ^0.1.1-rc.2",
@@ -67,17 +70,22 @@
     "@deepseek-ai/dsh-credentials": "^0.1.0-rc.5 || ^0.1.1-rc.2",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.5 || ^0.1.1-rc.2",
     "@deepseek-ai/dsh-llm": "^0.1.0-rc.5 || ^0.1.1-rc.2",
-    "@deepseek-ai/dsh-session": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-session-persistence": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-session-projection": "^0.1.1-rc.2",
-    "@deepseek-ai/dsh-session-projection-cache": "^0.1.1-rc.2",
+    "@deepseek-ai/dsh-session": "^0.1.0-rc.5 || ^0.1.1-rc.2",
+    "@deepseek-ai/dsh-session-persistence": "^0.1.0-rc.5 || ^0.1.1-rc.2",
+    "@deepseek-ai/dsh-session-projection": "^0.1.0-rc.5 || ^0.1.1-rc.2",
+    "@deepseek-ai/dsh-session-projection-cache": "^0.1.0-rc.5 || ^0.1.1-rc.2",
     "@deepseek-ai/dsh-settings": "^0.1.0-rc.5 || ^0.1.1-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.5 || ^0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
     "react": "^18.2.0",
     "zod": "^4.4.3"
   },
+  "dependencies": {
+    "qrcode": "1.5.4"
+  },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-client-connection": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.0-rc.7",
     "@deepseek-ai/dsh-client-ui-layout": "0.1.0-rc.7",
@@ -90,13 +98,25 @@
     "@deepseek-ai/dsh-session-projection": "0.1.1-rc.2",
     "@deepseek-ai/dsh-session-projection-cache": "0.1.1-rc.2",
     "@deepseek-ai/dsh-settings": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-scope": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-invariants": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-brand": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-timeout": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-attachment": "0.1.0-rc.7",
     "@deepseek-ai/schemastery": "3.18.1",
     "@types/node": "^24.0.0",
     "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "jsdom": "29.1.1",
     "lightningcss": "^1.32.0",
     "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
     "zod": "^4.4.3"
   },
   "packageManager": "pnpm@11.7.0"

@@ -11,6 +11,11 @@
   },
   "files": [
     "assets/**/*",
+    "docs/assets/dsh-damage-pulse-peak-valley-whale-poster.png",
+    "docs/assets/fastaitoken-channel-models.png",
+    "docs/assets/readme/dsh-damage-pulse-wechat-live.jpg",
+    "docs/assets/readme/whale-girl-critical-damage.png",
+    "docs/assets/readme/whale-girl-idle-bite-finger.png",
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",

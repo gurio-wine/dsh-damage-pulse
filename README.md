@@ -1,6 +1,10 @@
 # dsh-damage-pulse
 
 <p align="center">
+  <img src="docs/assets/dsh-damage-pulse-peak-valley-whale-poster.png" alt="dsh-damage-pulse 实时用量、鲸鱼娘、提醒规则、微信通知与安全更新功能总览" width="100%">
+</p>
+
+<p align="center">
   <a href="https://linux.do/t/topic/2773449" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/LINUX-DO-FFB003.svg?logo=data:image/svg%2bxml;base64,DQo8c3ZnIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiPjxwYXRoIGQ9Ik00Ni44Mi0uMDU1aDYuMjVxMjMuOTY5IDIuMDYyIDM4IDIxLjQyNmM1LjI1OCA3LjY3NiA4LjIxNSAxNi4xNTYgOC44NzUgMjUuNDV2Ni4yNXEtMi4wNjQgMjMuOTY4LTIxLjQzIDM4LTExLjUxMiA3Ljg4NS0yNS40NDUgOC44NzRoLTYuMjVxLTIzLjk3LTIuMDY0LTM4LjAwNC0yMS40M1EuOTcxIDY3LjA1Ni0uMDU0IDUzLjE4di02LjQ3M0MxLjM2MiAzMC43ODEgOC41MDMgMTguMTQ4IDIxLjM3IDguODE3IDI5LjA0NyAzLjU2MiAzNy41MjcuNjA0IDQ2LjgyMS0uMDU2IiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZWNlY2VjO2ZpbGwtb3BhY2l0eToxIi8+PHBhdGggZD0iTTQ3LjI2NiAyLjk1N3EyMi41My0uNjUgMzcuNzc3IDE1LjczOGE0OS43IDQ5LjcgMCAwIDEgNi44NjcgMTAuMTU3cS00MS45NjQuMjIyLTgzLjkzIDAgOS43NS0xOC42MTYgMzAuMDI0LTI0LjM4N2E2MSA2MSAwIDAgMSA5LjI2Mi0xLjUwOCIgc3R5bGU9InN0cm9rZTpub25lO2ZpbGwtcnVsZTpldmVub2RkO2ZpbGw6IzE5MTkxOTtmaWxsLW9wYWNpdHk6MSIvPjxwYXRoIGQ9Ik03Ljk4IDcwLjkyNmMyNy45NzctLjAzNSA1NS45NTQgMCA4My45My4xMTNRODMuNDI2IDg3LjQ3MyA2Ni4xMyA5NC4wODZxLTE4LjgxIDYuNTQ0LTM2LjgzMi0xLjg5OC0xNC4yMDMtNy4wOS0yMS4zMTctMjEuMjYyIiBzdHlsZT0ic3Ryb2tlOm5vbmU7ZmlsbC1ydWxlOmV2ZW5vZGQ7ZmlsbDojZjlhZjAwO2ZpbGwtb3BhY2l0eToxIi8+PC9zdmc+" alt="LINUX DO 社区认可"></a>
   <a href="#sponsor"><img src="https://img.shields.io/badge/FastAI-%E6%A8%A1%E5%9E%8B%E8%B5%9E%E5%8A%A9%E5%95%86-4F7CFF.svg?logo=data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAABYlAAAWJQFJUiTwAAABmUlEQVRYw%2B2Vv0tbURTHP%2BfmvcS8lx%2BYKrZ16modFbQiKrgWuujQpZtgqV3s0rGT4N9Q6NJBM0nWUoe6uSj4BxQKUnBSSPISk3tPB1%2BhS42JFqHcD1wuXM79fs89HM4Fj8fjuWdk4Jubl9PEUiEC4nSV0r0cQATkgBIHjEvzbzLBIN7mrd11JVkBoJgeZgSMghGw%2Bjv0kHEzc61W3%2B7r3Zcuk5oDNP8oogKamlvp0O6u95LrrwKvtYDRbQRoiSWrX7DawoniABVQFVTbtOwn5rJHd5uA7c6SMd8QA44aH8zO%2FTThG30sea1qzCMKQCFtwBJIkZ8ayxJT0rmJ1EBNSKAf1fCMDCAComn5QRP7noWgc2OpnhFrGrKM45in1NsJJtxgSBYIFIQGqidYFIslcXs8D6p9vaVnxESjwlk8ghAR5baARbKaJycK3Re8C7%2FepgeuT6CaPMENhZzbScZkngszSaB5ALLuM5u3M%2B89B1bz36%2FMkn0i84BRflDGMkyN0Gz8%2B1FcrT%2Fkst3EVoq8klP%2Fc3k8Hs9%2FyS8IrHi9DaVvuAAAAABJRU5ErkJggg%3D%3D" alt="FastAI 模型赞助商"></a>
 </p>
@@ -71,6 +75,10 @@
 - **ClawBot 微信通知**：在详细设置中查看连接、认证与投递状态，完成二维码登录、刷新、重连、安全断开和测试消息发送。
 - **少女风文案**：通道测试、预算越线、进入峰时、进入谷时和缓存异常均使用 `dsh-damage-pulse` 标准项目名；Star 邀请只出现在测试消息中。
 - 所有业务通知开关默认关闭；旧配置从 v0、v1、v2、v3 迁移且缺少通知字段时，也会保守补为关闭。发送测试消息是独立的通道验证，不受业务微信通知总开关限制。
+
+<p align="center">
+  <img src="docs/assets/readme/dsh-damage-pulse-wechat-live.jpg" alt="dsh-damage-pulse 通过 ClawBot 发送的微信通知实机截图" width="520">
+</p>
 
 ## 详细设置与安全更新
 
@@ -192,3 +200,5 @@ MIT
 ## 赞助商简介
 
 本项目由 <a href="https://www.fastaitoken.com/register?aff=BF9KNKFHX725" target="_blank" rel="noopener noreferrer">fastaitoken</a> 提供的 GPT 5.6sol 开发。<a href="https://www.fastaitoken.com/register?aff=BF9KNKFHX725" target="_blank" rel="noopener noreferrer">fastaitoken</a> 是低价实惠的 AI Token 中转站，覆盖 `GPT / Claude` 全模型，提供主流生图、视频模型。包纯度，实用耐蹬。<strong>注册后点击右上角用户头像前往 QQ 客服群 @群主可领 3 刀试用金（需提供用户 ID，暗号：GitHub 来的）。</strong> <a href="https://www.fastaitoken.com/register?aff=BF9KNKFHX725" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/FastAI-%E7%82%B9%E5%87%BB%E6%B3%A8%E5%86%8C-4F7CFF.svg?logo=data%3Aimage%2Fpng%3Bbase64%2CiVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAABYlAAAWJQFJUiTwAAABmUlEQVRYw%2B2Vv0tbURTHP%2BfmvcS8lx%2BYKrZ16modFbQiKrgWuujQpZtgqV3s0rGT4N9Q6NJBM0nWUoe6uSj4BxQKUnBSSPISk3tPB1%2BhS42JFqHcD1wuXM79fs89HM4Fj8fjuWdk4Jubl9PEUiEC4nSV0r0cQATkgBIHjEvzbzLBIN7mrd11JVkBoJgeZgSMghGw%2Bjv0kHEzc61W3%2B7r3Zcuk5oDNP8oogKamlvp0O6u95LrrwKvtYDRbQRoiSWrX7DawoniABVQFVTbtOwn5rJHd5uA7c6SMd8QA44aH8zO%2FTThG30sea1qzCMKQCFtwBJIkZ8ayxJT0rmJ1EBNSKAf1fCMDCAComn5QRP7noWgc2OpnhFrGrKM45in1NsJJtxgSBYIFIQGqidYFIslcXs8D6p9vaVnxESjwlk8ghAR5baARbKaJycK3Re8C7%2FepgeuT6CaPMENhZzbScZkngszSaB5ALLuM5u3M%2B89B1bz36%2FMkn0i84BRflDGMkyN0Gz8%2B1FcrT%2Fkst3EVoq8klP%2Fc3k8Hs9%2FyS8IrHi9DaVvuAAAAABJRU5ErkJggg%3D%3D" alt="fastai 点击注册"></a>
+
+<p><img src="docs/assets/fastaitoken-channel-models.png" alt="FastAiToken 支持的渠道与模型" width="100%"></p>
